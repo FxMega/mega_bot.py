@@ -1,10 +1,10 @@
-name: FXMEGA V8.0
+name: FXMEGA V8.0 M15
 
 on:
   schedule:
-    - cron: '0 */2 * * *'
-    - cron: '0 19 * * *'
-    - cron: '0 17 * * 0'
+    - cron: '*/15 * * * *'  # <-- EVERY 15 MINS M15 SIGNALS
+    - cron: '0 19 * * *'    # Daily 22:00 Kampala
+    - cron: '0 17 * * 0'    # Weekly Sunday 20:00
   workflow_dispatch:
 
 jobs:
@@ -19,13 +19,10 @@ jobs:
       - name: Run bot
         run: |
           if [ "${{ github.event.schedule }}" = "0 19 * * *" ]; then
-            echo "Daily report 22:00 Kampala"
             python mega_bot.py --daily
           elif [ "${{ github.event.schedule }}" = "0 17 * * 0" ]; then
-            echo "Weekly report Sunday 20:00"
             python mega_bot.py --weekly
           else
-            echo "Regular signals"
             python mega_bot.py
           fi
         env:
