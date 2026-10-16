@@ -94,7 +94,46 @@ Time: {datetime.now(EAT).strftime('%Y-%m-%d %H:%M EAT')}"""
     except Exception as e:
         print(f"Error {name}: {e}")
         return None
-
+def check_tp_hits():
+    if not os.path.exists("signals_history.json"):
+        return
+    try:
+        with open("signals_history.json", "r") as f:
+            history = json.load(f)
+        active = [s for s in history if s.get("status") == "ACTIVE"]
+        if not active:
+            return
+        for sig_data in active[:10]:
+            symbol = sig_data["symbol"]
+            name = sig_data["name"]
+            entry = float(sig_data["entry"])
+            tp = float(sig_data["tp"])
+            sl = float(sig_data["sl"])
+            direction = sig_data["direction"]
+            try:
+                data = yf.download(symbol, period="1d", interval="5m", progress=False)
+                if data.empty:
+                    continue
+                current_price = float(data['Close'].iloc[-1])
+                hit = None
+                if direction == "BUY" and current_price >= tp:
+                    hit = f"🎯 TP HIT! {name} BUY {entry} -> {current_price} PROFIT!"
+                elif direction == "BUY" and current_price <= sl:
+                    hit = f"❌ SL HIT! {name} BUY {entry} -> {current_price}"
+                elif direction == "SELL" and current_price <= tp:
+                    hit = f"🎯 TP HIT! {name} SELL {entry} -> {current_price} PROFIT!"
+                elif direction == "SELL" and current_price >= sl:
+                    hit = f"❌ SL HIT! {name} SELL {entry} -> {current_price}"
+                if hit:
+                    send_whatsapp(hit)
+                    sig_data["status"] = "CLOSED"
+            except:
+                continue
+        with open("signals_history.json", "w") as f:
+            json.dump(history, f, indent=2)
+    except Exception as e:
+        print(f"TP Check error: {e}")
+                 
 def main():
     print("FXMEGA UG V4.6 FULL - CallMeBot Edition Running...")
     
