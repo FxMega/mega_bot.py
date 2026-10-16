@@ -4,6 +4,7 @@ import requests
 import pytz
 import os
 from datetime import datetime
+import json
 import ta
 
 # ===== CONFIG - FROM GITHUB SECRETS =====
