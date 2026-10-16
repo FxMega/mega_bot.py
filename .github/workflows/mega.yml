@@ -1,18 +1,34 @@
-name: FXMEGA UG Bot
+name: FXMEGA V8.0
+
 on:
   schedule:
-    - cron: '*/15 * * * *'
+    - cron: '0 */2 * * *'
+    - cron: '0 19 * * *'
+    - cron: '0 17 * * 0'
   workflow_dispatch:
+
 jobs:
-  run-bot:
+  run:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: pip install yfinance pandas requests pytz ta
-      - run: python mega_bot.py
+      - run: pip install yfinance pandas requests pytz
+      - name: Run bot
+        run: |
+          if [ "${{ github.event.schedule }}" = "0 19 * * *" ]; then
+            echo "Daily report 22:00 Kampala"
+            python mega_bot.py --daily
+          elif [ "${{ github.event.schedule }}" = "0 17 * * 0" ]; then
+            echo "Weekly report Sunday 20:00"
+            python mega_bot.py --weekly
+          else
+            echo "Regular signals"
+            python mega_bot.py
+          fi
         env:
           WHATSAPP_PHONE: ${{ secrets.WHATSAPP_PHONE }}
           CALLMEBOT_APIKEY: ${{ secrets.CALLMEBOT_APIKEY }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
