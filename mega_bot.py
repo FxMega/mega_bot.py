@@ -105,7 +105,6 @@ def main():
         ("EURUSD=X", "EURUSD"),
         ("GBPUSD=X", "GBPUSD"),
         ("USDJPY=X", "USDJPY"),
-        ("XAUUSD=X", "XAUUSD"),
     ]
     
     found_signals = []
