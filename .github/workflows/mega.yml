@@ -1,12 +1,10 @@
 name: FXMEGA V8.0 M15
-
 on:
   schedule:
-    - cron: '*/15 * * * *'  # <-- EVERY 15 MINS M15 SIGNALS
-    - cron: '0 19 * * *'    # Daily 22:00 Kampala
-    - cron: '0 17 * * 0'    # Weekly Sunday 20:00
+    - cron: '*/15 * * * *'
+    - cron: '0 19 * * *'
+    - cron: '0 17 * * 0'
   workflow_dispatch:
-
 jobs:
   run:
     runs-on: ubuntu-latest
@@ -16,16 +14,11 @@ jobs:
         with:
           python-version: '3.11'
       - run: pip install yfinance pandas requests pytz
-      - name: Run bot
-        run: |
-          if [ "${{ github.event.schedule }}" = "0 19 * * *" ]; then
-            python mega_bot.py --daily
-          elif [ "${{ github.event.schedule }}" = "0 17 * * 0" ]; then
-            python mega_bot.py --weekly
-          else
-            python mega_bot.py
-          fi
+      - name: Run bot with NTFY FIX
         env:
           WHATSAPP_PHONE: ${{ secrets.WHATSAPP_PHONE }}
           CALLMEBOT_APIKEY: ${{ secrets.CALLMEBOT_APIKEY }}
-          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: |
+          echo "FORCING NTFY to gold-ai-ug-788408267"
+          curl -d "✅ FXMEGA V8.0 FIXED! If you see this, ntfy is working now. Next signal will come here + WhatsApp" https://ntfy.sh/gold-ai-ug-788408267 -H "Title: FXMEGA FIXED"
+          python mega_bot.py
