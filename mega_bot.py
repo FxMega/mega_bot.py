@@ -1,214 +1,237 @@
-import yfinance as yf
-import pandas as pd
-import requests
-import pytz
 import os
-from datetime import datetime
 import json
-import ta
-import re
+import asyncio
+import datetime
+import pytz
+import requests
+import websockets
+import pandas as pd
 
-# ===== CONFIG - FROM GITHUB SECRETS =====
-PHONE = os.getenv("WHATSAPP_PHONE", "256788408267")
-APIKEY = os.getenv("CALLMEBOT_APIKEY", "6265853")
-EAT = pytz.timezone('Africa/Kampala')
+# ================= FXMEGA UG V5.3 LATEST - DUAL SEND =================
+# FIXED: ENTRY/SL/TP same bug + Sends to WhatsApp + ntfy.sh at same time
+# Topic: gold-ai-ug-788408267 | Phone: 0700848808
 
-# ===== SEND FUNCTION - CALLMEBOT =====
-def send_whatsapp(message):
+KAMPALA_TZ = pytz.timezone('Africa/Kampala')
+WHATSAPP_PHONE = os.getenv("WHATSAPP_PHONE", "256700848808")
+CALLMEBOT_APIKEY = os.getenv("CALLMEBOT_APIKEY", "")
+NTFY_TOPIC = os.getenv("NTFY_TOPIC", "gold-ai-ug-788408267")
+
+DERIV_WS_LIST = [
+    "wss://ws.derivws.com/websockets/v3?app_id=1089",
+    "wss://ws.binaryws.com/websockets/v3?app_id=1089"
+]
+
+SYMBOLS_VOL = [
+    "R_10", "R_25", "R_50", "R_75", "R_100",
+    "VOLATILITY_10_INDEX", "VOLATILITY_25_INDEX", 
+    "VOLATILITY_50_INDEX", "VOLATILITY_75_INDEX", "VOLATILITY_100_INDEX"
+]
+
+HISTORY_FILE = "signals_history.json"
+
+# ========== FIX: PRICE FORMATTER (SOLVES 1.13/1.13/1.13 BUG) ==========
+def fmt(sym, p):
     try:
-        full_message = f"{message}\n\n---\nFXMEGA UG • 0700848808"
-        url = f"https://api.callmebot.com/whatsapp.php?phone={PHONE}&text={requests.utils.quote(full_message)}&apikey={APIKEY}"
-        r = requests.get(url, timeout=30)
-        print(f"WHATSAPP SENT: {r.text} | Status: {r.status_code}")
-        return True
-    except Exception as e:
-        print(f"WHATSAPP FAIL: {e}")
-        return False
+        p = float(p)
+        s = sym.upper()
+        if "JPY" in s:
+            return f"{p:.3f}"
+        if "XAU" in s or "GOLD" in s:
+            return f"{p:.2f}"
+        if "XAG" in s:
+            return f"{p:.3f}"
+        if "EUR" in s or "GBP" in s or "USD" in s:
+            return f"{p:.5f}"
+        return f"{p:.2f}"
+    except:
+        return str(p)
 
-def get_indicators(df):
-    df['EMA20'] = ta.trend.ema_indicator(df['Close'], window=20)
-    df['EMA50'] = ta.trend.ema_indicator(df['Close'], window=50)
-    df['RSI'] = ta.momentum.rsi(df['Close'], window=14)
-    df['ATR'] = ta.volatility.average_true_range(df['High'], df['Low'], df['Close'], window=14)
-    df['High20'] = df['High'].rolling(20).max()
-    df['Low20'] = df['Low'].rolling(20).min()
-    return df
-
-def analyze_pair(symbol, name, tf):
-    try:
-        interval = "15m" if tf == "SCALP" else "1h"
-        period = "5d" if tf == "SCALP" else "1mo"
-        df = yf.download(symbol, period=period, interval=interval, progress=False, auto_adjust=True)
-        if df.empty or len(df) < 60:
-            return None
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.get_level_values(0)
-        
-        df = get_indicators(df)
-        last = df.iloc[-1]
-        price = float(last['Close'])
-        rsi = float(last['RSI'])
-        ema20 = float(last['EMA20'])
-        ema50 = float(last['EMA50'])
-        atr = float(last['ATR'])
-
-        signal = None
-        reason = ""
-
-        if price > ema20 > ema50 and 55 < rsi < 75 and price >= last['High20'] * 0.999:
-            signal = "BUY"
-            reason = f"Trend Bullish • Price above EMA20/50 • RSI {rsi:.1f} • Breakout"
-        elif price < ema20 < ema50 and 25 < rsi < 45 and price <= last['Low20'] * 1.001:
-            signal = "SELL"
-            reason = f"Trend Bearish • Price below EMA20/50 • RSI {rsi:.1f} • Breakdown"
-
-        if signal:
-            sl = price - (atr * 1.5) if signal == "BUY" else price + (atr * 1.5)
-            tp = price + (atr * 3) if signal == "BUY" else price - (atr * 3)
-            icon = "🟢" if signal == "BUY" else "🔴"
-            msg = f"""{icon} {signal} {name} ({tf})
-
-Symbol: {symbol}
-Price: {price:.2f}
-TF: {tf}
-
-Entry: {price:.2f}
-SL: {sl:.2f}
-TP: {tp:.2f}
-
-Reason: {reason}
-RSI: {rsi:.1f}
-EMA20: {ema20:.2f} | EMA50: {ema50:.2f}
-
-Time: {datetime.now(EAT).strftime('%Y-%m-%d %H:%M EAT')}"""
-            return {"msg": msg, "entry": price, "tp": tp, "sl": sl, "direction": signal}
-        return None
-    except Exception as e:
-        print(f"Error {name}: {e}")
-        return None
-
-def check_tp_hits():
-    if not os.path.exists("signals_history.json"):
+def send_whatsapp(text):
+    if not CALLMEBOT_APIKEY:
+        print("No CALLMEBOT_APIKEY - skipping WhatsApp")
         return
     try:
-        with open("signals_history.json", "r") as f:
-            history = json.load(f)
-        active = [s for s in history if s.get("status") == "ACTIVE"]
-        if not active:
-            return
-        for sig_data in history:
-            if sig_data.get("status") != "ACTIVE":
-                continue
-            symbol = sig_data["symbol"]
-            name = sig_data["name"]
-            entry = float(sig_data["entry"])
-            tp = float(sig_data["tp"])
-            sl = float(sig_data["sl"])
-            direction = sig_data["direction"]
-            try:
-                data = yf.download(symbol, period="1d", interval="5m", progress=False, auto_adjust=True)
-                if data.empty:
-                    continue
-                if isinstance(data.columns, pd.MultiIndex):
-                    data.columns = data.columns.get_level_values(0)
-                current_price = float(data['Close'].iloc[-1])
-                high = float(data['High'].max())
-                low = float(data['Low'].min())
-                hit = None
-                if direction == "BUY":
-                    if high >= tp:
-                        hit = f"🎯 TP HIT! {name} BUY {entry:.2f} -> {tp:.2f} 💰 Profit!"
-                    elif low <= sl:
-                        hit = f"❌ SL HIT! {name} BUY {entry:.2f} -> {sl:.2f}"
-                elif direction == "SELL":
-                    if low <= tp:
-                        hit = f"🎯 TP HIT! {name} SELL {entry:.2f} -> {tp:.2f} 💰 Profit!"
-                    elif high >= sl:
-                        hit = f"❌ SL HIT! {name} SELL {entry:.2f} -> {sl:.2f}"
-                if hit:
-                    send_whatsapp(hit)
-                    sig_data["status"] = "CLOSED"
-            except Exception as e:
-                print(f"Check {name} error: {e}")
-                continue
-        with open("signals_history.json", "w") as f:
-            json.dump(history, f, indent=2)
+        phone = WHATSAPP_PHONE.replace("+", "").replace(" ", "")
+        url = f"https://api.callmebot.com/whatsapp.php?phone={phone}&text={requests.utils.quote(text)}&apikey={CALLMEBOT_APIKEY}"
+        r = requests.get(url, timeout=15)
+        print(f"WhatsApp Sent: {r.status_code}")
     except Exception as e:
-        print(f"TP Check error: {e}")
+        print(f"WhatsApp Error: {e}")
 
-def main():
-    print("FXMEGA UG V4.6 FULL - CallMeBot Edition Running...")
-    check_tp_hits()
-    pairs = [
-        ("GC=F", "GOLD"),
-        ("SI=F", "SILVER"),
-        ("BTC-USD", "BTCUSD"),
-        ("EURUSD=X", "EURUSD"),
-        ("GBPUSD=X", "GBPUSD"),
-        ("USDJPY=X", "USDJPY"),
-    ]
-    found_signals = []
-    for symbol, name in pairs:
-        # Check both SCALP and SWING
-        for tf in ["SCALP", "SWING"]:
-            result = analyze_pair(symbol, name, tf)
-            if result:
-                if isinstance(result, dict):
-                    sig_msg = result.get("msg", str(result))
-                    entry = result.get("entry", 0)
-                    tp = result.get("tp", 0)
-                    sl = result.get("sl", 0)
-                    direction = result.get("direction", "BUY")
-                else:
-                    sig_msg = result
-                    entry = tp = sl = 0
-                    direction = "SELL" if "SELL" in sig_msg else "BUY"
-                    try:
-                        m1 = re.search(r"Entry: ([\d\.]+)", sig_msg)
-                        m2 = re.search(r"TP: ([\d\.]+)", sig_msg)
-                        m3 = re.search(r"SL: ([\d\.]+)", sig_msg)
-                        if m1: entry = float(m1.group(1))
-                        if m2: tp = float(m2.group(1))
-                        if m3: sl = float(m3.group(1))
-                    except:
-                        pass
-                found_signals.append(sig_msg)
-                send_whatsapp(sig_msg)
-                try:
-                    hist = []
-                    if os.path.exists("signals_history.json"):
-                        with open("signals_history.json", "r") as f:
-                            hist = json.load(f)
-                    if entry and tp and sl:
-                        hist.append({"symbol": symbol, "name": name, "entry": entry, "tp": tp, "sl": sl, "direction": direction, "time": datetime.now(EAT).isoformat(), "status": "ACTIVE"})
-                        with open("signals_history.json", "w") as f:
-                            json.dump(hist, f, indent=2)
-                except Exception as e:
-                    print(f"Save hist error: {e}")
-    if not found_signals:
-        print("No signals this run - Bot is monitoring...")
+def send_ntfy(title, body):
+    try:
+        url = f"https://ntfy.sh/{NTFY_TOPIC}"
+        data = f"{title}\n{body}"
+        headers = {
+            "Title": title,
+            "Priority": "high",
+            "Tags": "chart_with_upwards_trend,money_bar,gold"
+        }
+        r = requests.post(url, data=data.encode('utf-8'), headers=headers, timeout=10)
+        print(f"ntfy Sent: {r.status_code} to {NTFY_TOPIC}")
+    except Exception as e:
+        print(f"ntfy Error: {e}")
 
-def daily_report():
-    msg = f"""📊 DAILY REPORT - {datetime.now(EAT).strftime('%d %B %Y')}
+def send_all(title, body):
+    """SENDS TO BOTH WHATSAPP + NTFY AT SAME TIME"""
+    full = f"{title}\n{body}\n\nFXMEGA UG • 0700848808"
+    print(full)
+    send_whatsapp(full)  # 1. WhatsApp
+    send_ntfy(title, body)  # 2. ntfy app
+    # Save history for TP tracker
+    try:
+        hist = []
+        if os.path.exists(HISTORY_FILE):
+            with open(HISTORY_FILE, 'r') as f:
+                hist = json.load(f)
+        hist.append({
+            "title": title, 
+            "body": body, 
+            "time": datetime.datetime.now().isoformat()
+        })
+        with open(HISTORY_FILE, 'w') as f:
+            json.dump(hist[-100:], f, indent=2)
+    except Exception as e:
+        print(f"History error: {e}")
 
-Today's Summary:
-Checked: GOLD, SILVER, BTC, EURUSD, GBPUSD, USDJPY
-Bot Status: Active ✅
-Time: {datetime.now(EAT).strftime('%H:%M EAT')}"""
-    send_whatsapp(msg)
+def add_signal(sym):
+    print(f"Signal logged: {sym}")
 
-def weekly_report():
-    msg = f"""📈 WEEKLY REPORT - Week Ending {datetime.now(EAT).strftime('%d %B %Y')}
+def rsi_calc(s, p=14):
+    delta = s.diff()
+    gain = (delta.where(delta > 0, 0)).ewm(span=p).mean()
+    loss = (-delta.where(delta < 0, 0)).ewm(span=p).mean()
+    rs = gain / loss
+    return 100 - (100 / (1 + rs))
 
-Bot Status: Active All Week ✅
-FXMEGA UG - Professional Signals"""
-    send_whatsapp(msg)
+async def get_candles(sym, gran=60):
+    for WS in DERIV_WS_LIST:
+        try:
+            async with websockets.connect(WS, ping_interval=20) as ws:
+                req = {
+                    "ticks_history": sym,
+                    "adjust_start_time": 1,
+                    "count": 200,
+                    "end": "latest",
+                    "granularity": gran,
+                    "style": "candles"
+                }
+                await ws.send(json.dumps(req))
+                resp = await asyncio.wait_for(ws.recv(), timeout=10)
+                data = json.loads(resp)
+                if "candles" in data:
+                    return pd.DataFrame(data["candles"])
+        except Exception as e:
+            print(f"WS {sym} error: {e}")
+            continue
+    return pd.DataFrame()
+
+async def analyze_vol(sym):
+    df = await get_candles(sym, gran=60)
+    if df.empty or len(df) < 60:
+        print(f"{sym} no data")
+        return
+    try:
+        df['close'] = pd.to_numeric(df['close'])
+        df['high'] = pd.to_numeric(df['high'])
+        df['low'] = pd.to_numeric(df['low'])
+        ema50 = df['close'].ewm(span=50).mean()
+        ema_flat = abs(ema50.iloc[-1] - ema50.iloc[-10]) < (df['close'].iloc[-1] * 0.001) if len(ema50) > 10 else True
+        recent = df.iloc[-120:]
+        rh = recent['high'].max()
+        rl = recent['low'].min()
+        rs = rh - rl
+        if rs == 0:
+            return
+        price = float(df['close'].iloc[-1])
+        r = float(rsi_calc(df['close']).iloc[-1])
+        pos = ((price - rl) / rs * 100) if rs > 0 else 50
+
+        if pos < 20 and r < 35 and ema_flat:
+            add_signal(sym)
+            sl = rl - (rs * 0.2)
+            tp = rl + (rs * 0.8)
+            send_all(
+                f"🔵 FX MEGA UG - {sym} BUY",
+                f"🎯 ENTRY: {fmt(sym,price)} | Low: {fmt(sym,rl)} High: {fmt(sym,rh)}\n"
+                f"🔴 SL: {fmt(sym,sl)} | ✅ TP: {fmt(sym,tp)} | RSI:{r:.1f} Pos:{pos:.1f}\n"
+                f"⏰ {datetime.datetime.now(KAMPALA_TZ).strftime('%H:%M %d/%m/%Y')}"
+            )
+
+        if pos > 80 and r > 65 and ema_flat:
+            add_signal(sym)
+            sl = rh + (rs * 0.2)
+            tp = rh - (rs * 0.8)
+            send_all(
+                f"🔴 FX MEGA UG - {sym} SELL",
+                f"🎯 ENTRY: {fmt(sym,price)} | High: {fmt(sym,rh)} Low: {fmt(sym,rl)}\n"
+                f"🔴 SL: {fmt(sym,sl)} | ✅ TP: {fmt(sym,tp)} | RSI:{r:.1f} Pos:{pos:.1f}\n"
+                f"⏰ {datetime.datetime.now(KAMPALA_TZ).strftime('%H:%M %d/%m/%Y')}"
+            )
+    except Exception as e:
+        print(f"Analyze {sym} error: {e}")
+
+async def analyze_gold():
+    try:
+        import yfinance as yf
+        df = yf.download("GC=F", period="2d", interval="15m", progress=False)
+        if df.empty:
+            print("Gold no data")
+            return
+        # Fix yfinance columns
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+        df.columns = [c.lower() for c in df.columns]
+        
+        price = float(df['close'].iloc[-1])
+        e20 = float(df['close'].ewm(span=20).mean().iloc[-1])
+        e50 = float(df['close'].ewm(span=50).mean().iloc[-1])
+        r = float(rsi_calc(df['close']).iloc[-1])
+        a = float((df['high'] - df['low']).rolling(14).mean().iloc[-1])
+        last_high = float(df['high'].iloc[-20:-1].max())
+        last_low = float(df['low'].iloc[-20:-1].min())
+        is_up = price > e20 > e50
+        is_down = price < e20 < e50
+
+        if is_up and price > last_high and 55 < r < 75:
+            add_signal("GOLD")
+            sl = price - (a * 1.5)
+            tp1 = price + (a * 2)
+            tp2 = price + (a * 3.5)
+            send_all(
+                f"🔵 FX MEGA UG - GOLD BUY",
+                f"🎯 ENTRY: {fmt('GOLD',price)} | 🔴 SL: {fmt('GOLD',sl)}\n"
+                f"✅ TP1: {fmt('GOLD',tp1)} | TP2: {fmt('GOLD',tp2)}\n"
+                f"📊 EMA20:{e20:.1f} EMA50:{e50:.1f} RSI:{r:.1f}\n"
+                f"⏰ {datetime.datetime.now(KAMPALA_TZ).strftime('%H:%M %d/%m/%Y')}"
+            )
+
+        if is_down and price < last_low and 30 < r < 55:
+            add_signal("GOLD")
+            sl = price + (a * 1.5)
+            tp1 = price - (a * 2)
+            tp2 = price - (a * 3.5)
+            send_all(
+                f"🔴 FX MEGA UG - GOLD SELL",
+                f"🎯 ENTRY: {fmt('GOLD',price)} | 🔴 SL: {fmt('GOLD',sl)}\n"
+                f"✅ TP1: {fmt('GOLD',tp1)} | TP2: {fmt('GOLD',tp2)}\n"
+                f"📊 EMA20:{e20:.1f} EMA50:{e50:.1f} RSI:{r:.1f}\n"
+                f"⏰ {datetime.datetime.now(KAMPALA_TZ).strftime('%H:%M %d/%m/%Y')}"
+            )
+        print("Gold checked OK")
+    except Exception as e:
+        print(f"Gold error: {e}")
+
+async def main():
+    print(f"FXMEGA UG V5.3 LATEST Starting - {datetime.datetime.now(KAMPALA_TZ)}")
+    print(f"DUAL SEND: WhatsApp {WHATSAPP_PHONE} + ntfy.sh/{NTFY_TOPIC}")
+    await analyze_gold()
+    for sym in SYMBOLS_VOL:
+        try:
+            await analyze_vol(sym)
+        except Exception as e:
+            print(e)
+    print("FXMEGA UG Done - Signals sent to BOTH apps!")
 
 if __name__ == "__main__":
-    now = datetime.now(EAT)
-    if now.hour == 22:
-        if now.weekday() == 6:
-            weekly_report()
-        daily_report()
-    else:
-        main()
+    asyncio.run(main())
