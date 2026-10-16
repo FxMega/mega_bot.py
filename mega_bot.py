@@ -6,6 +6,7 @@ import os
 from datetime import datetime
 import json
 import ta
+import re
 
 # ===== CONFIG - FROM GITHUB SECRETS =====
 PHONE = os.getenv("WHATSAPP_PHONE", "256788408267")
@@ -15,7 +16,6 @@ EAT = pytz.timezone('Africa/Kampala')
 # ===== SEND FUNCTION - CALLMEBOT =====
 def send_whatsapp(message):
     try:
-        # FXMEGA UG branding at bottom
         full_message = f"{message}\n\n---\nFXMEGA UG • 0700848808"
         url = f"https://api.callmebot.com/whatsapp.php?phone={PHONE}&text={requests.utils.quote(full_message)}&apikey={APIKEY}"
         r = requests.get(url, timeout=30)
@@ -30,7 +30,6 @@ def get_indicators(df):
     df['EMA50'] = ta.trend.ema_indicator(df['Close'], window=50)
     df['RSI'] = ta.momentum.rsi(df['Close'], window=14)
     df['ATR'] = ta.volatility.average_true_range(df['High'], df['Low'], df['Close'], window=14)
-    # Support / Resistance
     df['High20'] = df['High'].rolling(20).max()
     df['Low20'] = df['Low'].rolling(20).min()
     return df
@@ -47,8 +46,6 @@ def analyze_pair(symbol, name, tf):
         
         df = get_indicators(df)
         last = df.iloc[-1]
-        prev = df.iloc[-2]
-
         price = float(last['Close'])
         rsi = float(last['RSI'])
         ema20 = float(last['EMA20'])
@@ -58,12 +55,9 @@ def analyze_pair(symbol, name, tf):
         signal = None
         reason = ""
 
-        # FULL V4.6 LOGIC
-        # BUY Conditions
         if price > ema20 > ema50 and 55 < rsi < 75 and price >= last['High20'] * 0.999:
             signal = "BUY"
             reason = f"Trend Bullish • Price above EMA20/50 • RSI {rsi:.1f} • Breakout"
-        # SELL Conditions
         elif price < ema20 < ema50 and 25 < rsi < 45 and price <= last['Low20'] * 1.001:
             signal = "SELL"
             reason = f"Trend Bearish • Price below EMA20/50 • RSI {rsi:.1f} • Breakdown"
@@ -71,9 +65,7 @@ def analyze_pair(symbol, name, tf):
         if signal:
             sl = price - (atr * 1.5) if signal == "BUY" else price + (atr * 1.5)
             tp = price + (atr * 3) if signal == "BUY" else price - (atr * 3)
-            
             icon = "🟢" if signal == "BUY" else "🔴"
-            
             msg = f"""{icon} {signal} {name} ({tf})
 
 Symbol: {symbol}
@@ -89,11 +81,12 @@ RSI: {rsi:.1f}
 EMA20: {ema20:.2f} | EMA50: {ema50:.2f}
 
 Time: {datetime.now(EAT).strftime('%Y-%m-%d %H:%M EAT')}"""
-            return msg
+            return {"msg": msg, "entry": price, "tp": tp, "sl": sl, "direction": signal}
         return None
     except Exception as e:
         print(f"Error {name}: {e}")
         return None
+
 def check_tp_hits():
     if not os.path.exists("signals_history.json"):
         return
@@ -103,7 +96,9 @@ def check_tp_hits():
         active = [s for s in history if s.get("status") == "ACTIVE"]
         if not active:
             return
-        for sig_data in active[:10]:
+        for sig_data in history:
+            if sig_data.get("status") != "ACTIVE":
+                continue
             symbol = sig_data["symbol"]
             name = sig_data["name"]
             entry = float(sig_data["entry"])
@@ -111,33 +106,39 @@ def check_tp_hits():
             sl = float(sig_data["sl"])
             direction = sig_data["direction"]
             try:
-                data = yf.download(symbol, period="1d", interval="5m", progress=False)
+                data = yf.download(symbol, period="1d", interval="5m", progress=False, auto_adjust=True)
                 if data.empty:
                     continue
+                if isinstance(data.columns, pd.MultiIndex):
+                    data.columns = data.columns.get_level_values(0)
                 current_price = float(data['Close'].iloc[-1])
+                high = float(data['High'].max())
+                low = float(data['Low'].min())
                 hit = None
-                if direction == "BUY" and current_price >= tp:
-                    hit = f"🎯 TP HIT! {name} BUY {entry} -> {current_price} PROFIT!"
-                elif direction == "BUY" and current_price <= sl:
-                    hit = f"❌ SL HIT! {name} BUY {entry} -> {current_price}"
-                elif direction == "SELL" and current_price <= tp:
-                    hit = f"🎯 TP HIT! {name} SELL {entry} -> {current_price} PROFIT!"
-                elif direction == "SELL" and current_price >= sl:
-                    hit = f"❌ SL HIT! {name} SELL {entry} -> {current_price}"
+                if direction == "BUY":
+                    if high >= tp:
+                        hit = f"🎯 TP HIT! {name} BUY {entry:.2f} -> {tp:.2f} 💰 Profit!"
+                    elif low <= sl:
+                        hit = f"❌ SL HIT! {name} BUY {entry:.2f} -> {sl:.2f}"
+                elif direction == "SELL":
+                    if low <= tp:
+                        hit = f"🎯 TP HIT! {name} SELL {entry:.2f} -> {tp:.2f} 💰 Profit!"
+                    elif high >= sl:
+                        hit = f"❌ SL HIT! {name} SELL {entry:.2f} -> {sl:.2f}"
                 if hit:
                     send_whatsapp(hit)
                     sig_data["status"] = "CLOSED"
-            except:
+            except Exception as e:
+                print(f"Check {name} error: {e}")
                 continue
         with open("signals_history.json", "w") as f:
             json.dump(history, f, indent=2)
     except Exception as e:
         print(f"TP Check error: {e}")
-                 
+
 def main():
     print("FXMEGA UG V4.6 FULL - CallMeBot Edition Running...")
-        check_tp_hits()
-    # FULL LIST FROM V4.6
+    check_tp_hits()
     pairs = [
         ("GC=F", "GOLD"),
         ("SI=F", "SILVER"),
@@ -146,91 +147,67 @@ def main():
         ("GBPUSD=X", "GBPUSD"),
         ("USDJPY=X", "USDJPY"),
     ]
-    
     found_signals = []
-    
     for symbol, name in pairs:
-    # Check both SCALP and SWING
-    for tf in ["SCALP", "SWING"]:
-        result = analyze_pair(symbol, name, tf)
-        if result:
-            if isinstance(result, dict):
-                sig_msg = result.get("msg", str(result))
-                entry = result.get("entry", 0)
-                tp = result.get("tp", 0)
-                sl = result.get("sl", 0)
-                direction = result.get("direction", "BUY")
-            else:
-                sig_msg = result
-                entry = 0
-                tp = 0
-                sl = 0
-                direction = "BUY"
-                if "SELL" in sig_msg:
-                    direction = "SELL"
-                import re
+        # Check both SCALP and SWING
+        for tf in ["SCALP", "SWING"]:
+            result = analyze_pair(symbol, name, tf)
+            if result:
+                if isinstance(result, dict):
+                    sig_msg = result.get("msg", str(result))
+                    entry = result.get("entry", 0)
+                    tp = result.get("tp", 0)
+                    sl = result.get("sl", 0)
+                    direction = result.get("direction", "BUY")
+                else:
+                    sig_msg = result
+                    entry = tp = sl = 0
+                    direction = "SELL" if "SELL" in sig_msg else "BUY"
+                    try:
+                        m1 = re.search(r"Entry: ([\d\.]+)", sig_msg)
+                        m2 = re.search(r"TP: ([\d\.]+)", sig_msg)
+                        m3 = re.search(r"SL: ([\d\.]+)", sig_msg)
+                        if m1: entry = float(m1.group(1))
+                        if m2: tp = float(m2.group(1))
+                        if m3: sl = float(m3.group(1))
+                    except:
+                        pass
+                found_signals.append(sig_msg)
+                send_whatsapp(sig_msg)
                 try:
-                    m1 = re.search(r"ENTRY[:\s]+([\d\.]+)", sig_msg)
-                    m2 = re.search(r"TP[:\s]+([\d\.]+)", sig_msg)
-                    m3 = re.search(r"SL[:\s]+([\d\.]+)", sig_msg)
-                    if m1: entry = float(m1.group(1))
-                    if m2: tp = float(m2.group(1))
-                    if m3: sl = float(m3.group(1))
-                except:
-                    pass
-            found_signals.append(sig_msg)
-            send_whatsapp(sig_msg)
-            try:
-                hist = []
-                if os.path.exists("signals_history.json"):
-                    with open("signals_history.json", "r") as f:
-                        hist = json.load(f)
-                if entry and tp and sl:
-                    hist.append({"symbol": symbol, "name": name, "entry": entry, "tp": tp, "sl": sl, "direction": direction, "time": datetime.now(EAT).isoformat(), "status": "ACTIVE"})
-                    with open("signals_history.json", "w") as f:
-                        json.dump(hist, f, indent=2)
-            except Exception as e:
-                print(f"Save hist error: {e}")
-
+                    hist = []
+                    if os.path.exists("signals_history.json"):
+                        with open("signals_history.json", "r") as f:
+                            hist = json.load(f)
+                    if entry and tp and sl:
+                        hist.append({"symbol": symbol, "name": name, "entry": entry, "tp": tp, "sl": sl, "direction": direction, "time": datetime.now(EAT).isoformat(), "status": "ACTIVE"})
+                        with open("signals_history.json", "w") as f:
+                            json.dump(hist, f, indent=2)
+                except Exception as e:
+                    print(f"Save hist error: {e}")
     if not found_signals:
         print("No signals this run - Bot is monitoring...")
-        # Uncomment next line to get test message each run:
-        # send_whatsapp("✅ FXMEGA UG V4.6 Monitoring... No signal this 15m candle. GOLD, BTC, SILVER, FX checked.")
 
 def daily_report():
     msg = f"""📊 DAILY REPORT - {datetime.now(EAT).strftime('%d %B %Y')}
 
 Today's Summary:
 Checked: GOLD, SILVER, BTC, EURUSD, GBPUSD, USDJPY
-Signals Today: Monitoring log
 Bot Status: Active ✅
-Market: Open
-
-All pairs scanned every 15 minutes.
-No missed alerts.
-
 Time: {datetime.now(EAT).strftime('%H:%M EAT')}"""
     send_whatsapp(msg)
 
 def weekly_report():
     msg = f"""📈 WEEKLY REPORT - Week Ending {datetime.now(EAT).strftime('%d %B %Y')}
 
-Weekly Performance:
-Pairs: GOLD, SILVER, BTC, EURUSD, GBPUSD, USDJPY, XAUUSD
-Timeframes: SCALP (15m) + SWING (1h)
-Win Rate Tracking: Next week
-
 Bot Status: Active All Week ✅
-Uptime: 100%
-
 FXMEGA UG - Professional Signals"""
     send_whatsapp(msg)
 
 if __name__ == "__main__":
     now = datetime.now(EAT)
-    # Daily report 22:00 EAT (19:00 UTC) and Weekly Sunday 22:00 EAT
     if now.hour == 22:
-        if now.weekday() == 6:  # Sunday
+        if now.weekday() == 6:
             weekly_report()
         daily_report()
     else:
