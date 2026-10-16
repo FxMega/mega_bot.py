@@ -136,7 +136,7 @@ def check_tp_hits():
                  
 def main():
     print("FXMEGA UG V4.6 FULL - CallMeBot Edition Running...")
-    
+        check_tp_hits()
     # FULL LIST FROM V4.6
     pairs = [
         ("GC=F", "GOLD"),
