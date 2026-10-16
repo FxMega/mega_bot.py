@@ -150,12 +150,47 @@ def main():
     found_signals = []
     
     for symbol, name in pairs:
-        # Check both SCALP and SWING
-        for tf in ["SCALP", "SWING"]:
-            sig = analyze_pair(symbol, name, tf)
-            if sig:
-                found_signals.append(sig)
-                send_whatsapp(sig)  # Send immediately per signal
+    # Check both SCALP and SWING
+    for tf in ["SCALP", "SWING"]:
+        result = analyze_pair(symbol, name, tf)
+        if result:
+            if isinstance(result, dict):
+                sig_msg = result.get("msg", str(result))
+                entry = result.get("entry", 0)
+                tp = result.get("tp", 0)
+                sl = result.get("sl", 0)
+                direction = result.get("direction", "BUY")
+            else:
+                sig_msg = result
+                entry = 0
+                tp = 0
+                sl = 0
+                direction = "BUY"
+                if "SELL" in sig_msg:
+                    direction = "SELL"
+                import re
+                try:
+                    m1 = re.search(r"ENTRY[:\s]+([\d\.]+)", sig_msg)
+                    m2 = re.search(r"TP[:\s]+([\d\.]+)", sig_msg)
+                    m3 = re.search(r"SL[:\s]+([\d\.]+)", sig_msg)
+                    if m1: entry = float(m1.group(1))
+                    if m2: tp = float(m2.group(1))
+                    if m3: sl = float(m3.group(1))
+                except:
+                    pass
+            found_signals.append(sig_msg)
+            send_whatsapp(sig_msg)
+            try:
+                hist = []
+                if os.path.exists("signals_history.json"):
+                    with open("signals_history.json", "r") as f:
+                        hist = json.load(f)
+                if entry and tp and sl:
+                    hist.append({"symbol": symbol, "name": name, "entry": entry, "tp": tp, "sl": sl, "direction": direction, "time": datetime.now(EAT).isoformat(), "status": "ACTIVE"})
+                    with open("signals_history.json", "w") as f:
+                        json.dump(hist, f, indent=2)
+            except Exception as e:
+                print(f"Save hist error: {e}")
 
     if not found_signals:
         print("No signals this run - Bot is monitoring...")
