@@ -1,34 +1,30 @@
-name: CRYPTO BOT 24/7
+name: CRYPTOMEGA v4 IMAGE BOT
 
 on:
   schedule:
-    - cron: '*/15 * * * *'
+    # Every 2 hours 24/7 - crypto never sleeps!
+    - cron: '0 */2 * * *'
   workflow_dispatch:
 
 jobs:
-  run-bot:
+  run-crypto:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
-      - name: Checkout
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Python
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.11'
 
-      - name: Install
-        run: pip install requests
-
-      - name: Run Bot
-        run: python crypto_bot.py
-
-      - name: AUTO SAVE TRADES FILE
+      - name: Install dependencies
         run: |
-          git config --global user.name "CryptoBot"
-          git config --global user.email "bot@crypto.com"
-          git add crypto_trades.json crypto_history.json || echo "no file"
-          git diff --quiet && git diff --staged --quiet || git commit -m "Update trades auto [skip ci]"
-          git push || echo "nothing to push"
+          pip install --upgrade pip
+          pip install yfinance pandas requests pytz pillow
+
+      - name: Run CRYPTOMEGA v4 with Image API
+        env:
+          WHATSAPP_PHONE: ${{ secrets.WHATSAPP_PHONE }}
+          CALLMEBOT_APIKEY: ${{ secrets.CALLMEBOT_APIKEY }}
+        run: python cryptomega.py
