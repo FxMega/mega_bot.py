@@ -1,9 +1,9 @@
-name: CryptOmega v5.2
+name: CryptOmega v5.2 RED + ANTI-SPAM
 
 on:
   schedule:
-    - cron: '0 */2 * * *'  # Every 2 hours
-  workflow_dispatch:  # Allow manual run
+    - cron: '0 */2 * * *'
+  workflow_dispatch:
 
 jobs:
   run-bot:
@@ -19,6 +19,7 @@ jobs:
 
       - name: Install dependencies
         run: |
+          pip install --upgrade pip
           pip install yfinance pandas requests beautifulsoup4 pytz lxml
 
       - name: Run CryptOmega v5.2
