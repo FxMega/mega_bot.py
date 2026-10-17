@@ -1,28 +1,27 @@
-name: CRYPTOMEGA Every 2 Hours
+name: CryptOmega v5.2
 
 on:
   schedule:
-    - cron: '0 */2 * * *'  # Every 2 hours UTC = 2am, 4am, 6am... EAT = 5am, 7am, 9am...
-  workflow_dispatch:  # Allows manual Run button
+    - cron: '0 */2 * * *'  # Every 2 hours
+  workflow_dispatch:  # Allow manual run
 
 jobs:
-  run-crypto:
+  run-bot:
     runs-on: ubuntu-latest
-    
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
       - name: Install dependencies
         run: |
-          pip install yfinance pandas requests Pillow pytz
+          pip install yfinance pandas requests beautifulsoup4 pytz lxml
 
-      - name: Run CRYPTOMEGA
+      - name: Run CryptOmega v5.2
         env:
           WHATSAPP_PHONE: ${{ secrets.WHATSAPP_PHONE }}
           CALLMEBOT_APIKEY: ${{ secrets.CALLMEBOT_APIKEY }}
