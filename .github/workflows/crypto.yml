@@ -1,14 +1,14 @@
-name: CRYPTOMEGA v4 IMAGE BOT
+name: CRYPTOMEGA Every 2 Hours
 
 on:
   schedule:
-    # Every 2 hours 24/7 - crypto never sleeps!
-    - cron: '0 */2 * * *'
-  workflow_dispatch:
+    - cron: '0 */2 * * *'  # Every 2 hours UTC = 2am, 4am, 6am... EAT = 5am, 7am, 9am...
+  workflow_dispatch:  # Allows manual Run button
 
 jobs:
   run-crypto:
     runs-on: ubuntu-latest
+    
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -20,11 +20,11 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install --upgrade pip
-          pip install yfinance pandas requests pytz pillow
+          pip install yfinance pandas requests Pillow pytz
 
-      - name: Run CRYPTOMEGA v4 with Image API
+      - name: Run CRYPTOMEGA
         env:
           WHATSAPP_PHONE: ${{ secrets.WHATSAPP_PHONE }}
           CALLMEBOT_APIKEY: ${{ secrets.CALLMEBOT_APIKEY }}
-        run: python cryptomega.py
+        run: |
+          python cryptomega.py
