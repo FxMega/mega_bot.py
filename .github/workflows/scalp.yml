@@ -17,4 +17,4 @@ jobs:
       - env:
           WHATSAPP_PHONE: ${{ secrets.WHATSAPP_PHONE }}
           CALLMEBOT_APIKEY: ${{ secrets.CALLMEBOT_APIKEY }}
-        run: python cryptomega.py
+        run: python fxmega_scalping.py
