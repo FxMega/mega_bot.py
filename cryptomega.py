@@ -24,12 +24,10 @@ def get_data(sym):
     df['EMA9'] = df['Close'].ewm(span=9).mean()
     df['EMA21'] = df['Close'].ewm(span=21).mean()
     df['EMA50'] = df['Close'].ewm(span=50).mean()
-    df['VolAvg20'] = df['Volume'].rolling(20).mean()
     d = df['Close'].diff()
     g = (d.where(d > 0, 0)).rolling(14).mean()
     l = (-d.where(d < 0, 0)).rolling(14).mean()
     df['RSI'] = 100 - (100 / (1 + g/l))
-    df['BB'] = df['Close'].rolling(20).mean()
     return df
 
 def get_signal(df):
@@ -39,10 +37,8 @@ def get_signal(df):
     e9 = float(last['EMA9'])
     e21 = float(last['EMA21'])
     e50 = float(last['EMA50'])
-    if e21 > e50 and e9 > e21 and 30 < rsi < 70:
-        return "BUY", price, rsi
-    if e21 < e50 and e9 < e21 and 30 < rsi < 70:
-        return "SELL", price, rsi
+    if e21 > e50 and e9 > e21 and 30 < rsi < 70: return "BUY", price, rsi
+    if e21 < e50 and e9 < e21 and 30 < rsi < 70: return "SELL", price, rsi
     return None
 
 def make_card(name, signal, price, tp1, tp2, sl, rsi):
@@ -69,61 +65,43 @@ def make_card(name, signal, price, tp1, tp2, sl, rsi):
     img.save(path, quality=90)
     return path
 
-def upload(path):
-    # Try file.io first - works in GitHub
+def upload_direct(path):
     try:
         with open(path, 'rb') as f:
-            r = requests.post('https://file.io', files={'file': f}, timeout=15)
+            r = requests.post('https://tmpfiles.org/api/v1/upload', files={'file': f}, timeout=20)
             if r.status_code == 200:
-                url = r.json().get('link')
-                if url:
-                    print(f"UPLOAD OK file.io: {url}")
-                    return url
+                data = r.json()
+                viewer = data['data']['url']  # https://tmpfiles.org/xxxx/file.jpg
+                direct = viewer.replace('tmpfiles.org/', 'tmpfiles.org/dl/')
+                print(f"DIRECT IMAGE URL: {direct}")
+                return direct
     except Exception as e:
-        print(f"file.io fail {e}")
-    try:
-        with open(path, 'rb') as f:
-            r = requests.post('https://tmpfiles.org/api/v1/upload', files={'file': f}, timeout=15)
-            if r.status_code == 200:
-                url = r.json()['data']['url']
-                print(f"UPLOAD OK tmpfiles: {url}")
-                return url
-    except Exception as e:
-        print(f"tmpfiles fail {e}")
+        print(f"upload fail {e}")
     return None
 
-print("=== CRYPTOMEGA v4.5 CLEAN ===")
+print("=== CRYPTOMEGA v4.6 IMAGE FIX ===")
 for sym, cfg in CRYPTOS.items():
     df = get_data(sym)
-    if df is None:
-        print(f"{sym} no data")
-        continue
+    if df is None: continue
     sig = get_signal(df)
-    real_price = float(df['Close'].iloc[-1])
-    print(f"{sym} real price {real_price:.2f} RSI {float(df['RSI'].iloc[-1]):.1f}")
+    real = float(df['Close'].iloc[-1])
+    rsi_last = float(df['RSI'].iloc[-1])
+    print(f"{sym} price {real:.2f} RSI {rsi_last:.1f}")
     if sig:
         signal, price, rsi = sig
-        # CORRECT TP/SL MATH
         if signal == "BUY":
-            tp1 = price * (1 + cfg['tp1'])
-            tp2 = price * (1 + cfg['tp2'])
-            sl = price * (1 - cfg['sl'])
+            tp1 = price * (1 + cfg['tp1']); tp2 = price * (1 + cfg['tp2']); sl = price * (1 - cfg['sl'])
         else:
-            tp1 = price * (1 - cfg['tp1'])
-            tp2 = price * (1 - cfg['tp2'])
-            sl = price * (1 + cfg['sl'])
-        print(f"--> {sym} {signal} ENTRY {price:.2f} TP1 {tp1:.2f} SL {sl:.2f}")
+            tp1 = price * (1 - cfg['tp1']); tp2 = price * (1 - cfg['tp2']); sl = price * (1 + cfg['sl'])
+        print(f"--> {sym} {signal} {price:.2f}")
         card = make_card(cfg['name'], signal, price, tp1, tp2, sl, rsi)
-        img_url = upload(card)
-        caption = f"{cfg['name']} {signal}\nENTRY {price:.2f}\nTP1 {tp1:.2f}\nTP2 {tp2:.2f}\nSL {sl:.2f}\nRSI {rsi:.1f}\nLEV x{cfg['lev']}"
-        enc_text = requests.utils.quote(caption)
+        img_url = upload_direct(card)
+        text = f"{cfg['name']} {signal}\nENTRY {price:.2f}\nTP1 {tp1:.2f}\nTP2 {tp2:.2f}\nSL {sl:.2f}\nRSI {rsi:.1f}\nLEV x{cfg['lev']}"
         if img_url:
-            enc_img = requests.utils.quote(img_url)
-            url = f"https://api.callmebot.com/whatsapp.php?phone={PHONE}&text={enc_text}&apikey={APIKEY}&image={enc_img}"
-            print(f"SEND WITH IMAGE {img_url}")
+            full = f"https://api.callmebot.com/whatsapp.php?phone={PHONE}&text={requests.utils.quote(text)}&apikey={APIKEY}&image={requests.utils.quote(img_url)}"
         else:
-            url = f"https://api.callmebot.com/whatsapp.php?phone={PHONE}&text={enc_text}&apikey={APIKEY}"
-            print("SEND TEXT ONLY")
-        requests.get(url, timeout=20)
+            full = f"https://api.callmebot.com/whatsapp.php?phone={PHONE}&text={requests.utils.quote(text)}&apikey={APIKEY}"
+        requests.get(full, timeout=20)
+        print(f"SENT {sym}")
     else:
         print(f"{sym} No signal")
