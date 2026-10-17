@@ -2,6 +2,7 @@ import yfinance as yf
 import requests
 import os
 import pytz
+import time
 from datetime import datetime
 from bs4 import BeautifulSoup
 
@@ -170,6 +171,7 @@ if is_blocked:
     url = f"https://api.callmebot.com/whatsapp.php?phone={PHONE}&text={requests.utils.quote(txt)}&apikey={APIKEY}"
     requests.get(url, timeout=15)
     print("Paused due to red news")
+    time.sleep(5)
     exit(0)
 
 for sym, cfg in CRYPTOS.items():
@@ -197,3 +199,4 @@ for sym, cfg in CRYPTOS.items():
         url = f"https://api.callmebot.com/whatsapp.php?phone={PHONE}&text={requests.utils.quote(text)}&apikey={APIKEY}"
         r = requests.get(url, timeout=15)
         print(f"SENT {sym}: {r.text[:120]}")
+        time.sleep(5)
