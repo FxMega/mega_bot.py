@@ -8,7 +8,7 @@ from PIL import Image, ImageDraw, ImageFont
 PHONE = os.getenv("WHATSAPP_PHONE", "256788408267")
 APIKEY = os.getenv("CALLMEBOT_APIKEY", "6265853")
 KAMPALA = pytz.timezone('Africa/Kampala')
-TEST_MODE = True  # SET TO False AFTER YOU CONFIRM IMAGE WORKS!
+TEST_MODE = False  # NORMAL SIGNALS NOW!
 
 CRYPTOS = {
     "BTC-USD": {"name": "BITCOIN", "strat": "KING_TREND", "lev": 100, "tp1": 0.02, "tp2": 0.04, "sl": 0.015},
@@ -21,10 +21,10 @@ CRYPTOS = {
 
 def get_data(sym):
     try:
-        df = yf.download(sym, period="14d", interval="1h", progress=False, auto_adjust=True)
+        df = yf.download(sym, period="30d", interval="1h", progress=False, auto_adjust=True)
         if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.get_level_values(0)
         df = df.dropna()
-        if len(df) < 30: return None
+        if len(df) < 50: return None
         df['EMA9'] = df['Close'].ewm(span=9).mean()
         df['EMA21'] = df['Close'].ewm(span=21).mean()
         df['EMA50'] = df['Close'].ewm(span=50).mean()
@@ -38,17 +38,53 @@ def get_data(sym):
         df['BB_UP'] = df['SMA20'] + 2*df['STD20']
         df['BB_LOW'] = df['SMA20'] - 2*df['STD20']
         return df
-    except Exception as e:
-        print(f"{sym} error {e}")
-        return None
+    except: return None
 
-def relaxed_strategy(df, strat):
-    last = df.iloc[-1]; price = last['Close']; rsi = last['RSI']
-    # VERY RELAXED FOR WEEKEND TESTING - WILL TRIGGER
-    if last['EMA9'] > last['EMA21'] and rsi > 48 and rsi < 72:
-        return "BUY", price, rsi, f"{strat} RELAXED BUY"
-    if last['EMA9'] < last['EMA21'] and rsi < 52 and rsi > 28:
-        return "SELL", price, rsi, f"{strat} RELAXED SELL"
+def normal_strategy(df, strat):
+    last = df.iloc[-1]; prev = df.iloc[-2]; price = last['Close']; rsi = last['RSI']
+    vol_ok = last['Volume'] > last['VolAvg20']*1.1
+    
+    # BTC - Trend + Pullback
+    if strat == "KING_TREND":
+        if last['EMA21'] > last['EMA50'] and last['EMA9'] > last['EMA21'] and 38 < rsi < 68 and last['Close'] > last['SMA20']:
+            return "BUY", price, rsi, "BTC UPTREND CONFIRMED"
+        if last['EMA21'] < last['EMA50'] and last['EMA9'] < last['EMA21'] and 32 < rsi < 62:
+            return "SELL", price, rsi, "BTC DOWNTREND"
+
+    # ETH - Smart Money
+    if strat == "SMART_MONEY":
+        if last['EMA21'] > last['EMA50'] and 35 < rsi < 65 and prev['RSI'] < 55 and last['Close'] > last['EMA9']:
+            return "BUY", price, rsi, "ETH PULLBACK BUY"
+        if last['EMA21'] < last['EMA50'] and rsi > 55:
+            return "SELL", price, rsi, "ETH WEAKNESS"
+
+    # SOL - Breakout needs volume
+    if strat == "BREAKOUT":
+        if last['Close'] > last['BB_UP']*0.998 and rsi < 75 and vol_ok:
+            return "BUY", price, rsi, f"SOL BREAKOUT VOL {last['Volume']/last['VolAvg20']:.1f}x"
+        if last['Close'] < last['BB_LOW']*1.002 and rsi > 25:
+            return "SELL", price, rsi, "SOL BREAKDOWN"
+
+    # BNB - Range
+    if strat == "RANGE_BOUNCE":
+        if last['Close'] < last['BB_LOW']*1.01 and rsi < 40:
+            return "BUY", price, rsi, "BNB OVERSOLD BOUNCE"
+        if last['Close'] > last['BB_UP']*0.99 and rsi > 60:
+            return "SELL", price, rsi, "BNB OVERBOUGHT FADE"
+
+    # XRP - Pump
+    if strat == "PUMP_CATCHER":
+        if last['Volume'] > last['VolAvg20']*1.8 and last['EMA9'] > last['EMA21'] and 50 < rsi < 75:
+            return "BUY", price, rsi, f"XRP PUMP {last['Volume']/last['VolAvg20']:.1f}x"
+        if rsi > 75:
+            return "SELL", price, rsi, "XRP PUMP END"
+
+    # DOGE - Momentum
+    if strat == "MEME_MOMO":
+        if last['EMA9'] > last['EMA21'] and last['EMA21'] > last['EMA50'] and 45 < rsi < 72 and vol_ok:
+            return "BUY", price, rsi, "DOGE MOMENTUM"
+        if last['EMA9'] < last['EMA21'] and rsi > 60:
+            return "SELL", price, rsi, "DOGE FADE"
     return None
 
 def calc_tp_sl(price, signal, cfg):
@@ -76,58 +112,37 @@ def create_gold_card(sym, info, signal, price, rsi, reason, tp1, tp2, sl):
     d.text((540,940), f"SL: ${sl:,.4f}" if sl<10 else f"SL: ${sl:,.2f}", font=fm, fill="#D50000", anchor="mm")
     d.text((540,1030), f"RSI {rsi:.1f} | {reason}", font=fs, fill="black", anchor="mm")
     d.text((540,1250), f"{datetime.now(KAMPALA).strftime('%d %b %H:%M KAMPALA')}", font=fm, fill="white", anchor="mm")
-    d.text((540,1330), "CRYPTOMEGA v4.1 RELAXED + IMAGE", font=fs, fill="white", anchor="mm")
+    d.text((540,1330), "CRYPTOMEGA v4.2 NORMAL", font=fs, fill="white", anchor="mm")
     path = f"/tmp/{sym.replace('-','')}_card.jpg"; img.save(path, quality=95); return path
 
 def upload_image_get_url(path):
     try:
         with open(path, 'rb') as f:
             r = requests.post('https://0x0.st', files={'file': f}, timeout=30)
-            if r.status_code == 200: 
-                url = r.text.strip()
-                print(f"UPLOADED {url}")
-                return url
-    except Exception as e: print(f"Upload fail {e}")
+            if r.status_code == 200: return r.text.strip()
+    except: pass
     return None
 
 def send_with_image(caption, image_path):
     url_img = upload_image_get_url(image_path)
     enc_text = requests.utils.quote(caption)
     if url_img:
-        enc_img = requests.utils.quote(url_img)
-        url = f"https://api.callmebot.com/whatsapp.php?phone={PHONE}&text={enc_text}&apikey={APIKEY}&image={enc_img}"
+        url = f"https://api.callmebot.com/whatsapp.php?phone={PHONE}&text={enc_text}&apikey={APIKEY}&image={requests.utils.quote(url_img)}"
     else:
         url = f"https://api.callmebot.com/whatsapp.php?phone={PHONE}&text={enc_text}&apikey={APIKEY}"
-    try:
-        r = requests.get(url, timeout=30)
-        print(f"WHATSAPP RESPONSE: {r.text[:200]}")
-    except Exception as e: print(e)
+    requests.get(url, timeout=30)
 
-print("=== CRYPTOMEGA v4.1 RELAXED + IMAGE API ===")
-sent = 0
+print("=== CRYPTOMEGA v4.2 NORMAL SIGNALS ===")
 for sym, info in CRYPTOS.items():
     df = get_data(sym)
-    if df is None: 
-        print(f"{sym} No data"); continue
-    sig = relaxed_strategy(df, info['strat'])
-    
-    # FORCE ONE TEST SIGNAL IF STILL NO SIGNAL AND TEST_MODE=True
-    if not sig and TEST_MODE and sent == 0:
-        price = df.iloc[-1]['Close']; rsi = df.iloc[-1]['RSI']
-        sig = ("BUY", price, rsi, f"{info['strat']} TEST SIGNAL v4.1")
-        print(f"{sym} FORCING TEST SIGNAL")
-
+    if df is None: continue
+    sig = normal_strategy(df, info['strat'])
     if sig:
         signal, price, rsi, reason = sig
         tp1, tp2, sl = calc_tp_sl(price, signal, info)
         card = create_gold_card(sym, info, signal, price, rsi, reason, tp1, tp2, sl)
-        cap = f"💎 {info['name']} {signal} 💎\nENTRY ${price:.4f}\nTP1 ${tp1:.4f}\nTP2 ${tp2:.4f}\nSL ${sl:.4f}\nRSI {rsi:.1f}\n{reason}\nLEV x{info['lev']}\nTime: {datetime.now(KAMPALA).strftime('%H:%M %d %b')}"
-        print(f"✅ {sym} {signal} @ {price} SENDING IMAGE...")
+        cap = f"💎 {info['name']} {signal} 💎\n{info['strat']}\nENTRY ${price:.4f}\nTP1 ${tp1:.4f} (+{info['tp1']*100:.1f}%)\nTP2 ${tp2:.4f} (+{info['tp2']*100:.1f}%)\nSL ${sl:.4f}\nRSI {rsi:.1f}\n{reason}\nLEV x{info['lev']}"
+        print(f"✅ {sym} {signal} - {reason}")
         send_with_image(cap, card)
-        sent += 1
-        if TEST_MODE: break  # Send only 1 test image
     else:
-        print(f"{sym} - No signal - EMA9 {df.iloc[-1]['EMA9']:.2f} vs EMA21 {df.iloc[-1]['EMA21']:.2f} RSI {df.iloc[-1]['RSI']:.1f}")
-
-if sent == 0:
-    print("STILL NO SIGNAL - Check logs above")
+        print(f"{sym} - No signal today (RSI {df.iloc[-1]['RSI']:.1f})")
