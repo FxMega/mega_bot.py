@@ -3,7 +3,7 @@ from datetime import datetime
 import pytz, yfinance as yf
 
 PHONE = "256788408267"
-CALLMEBOT_API = "YOUR_KEY_HERE"  # <--- PUT YOUR REAL KEY
+CALLMEBOT_API = "6265853"  # <--- PUT YOUR REAL KEY
 LAST_FILE = "mega_last_signal.json"
 
 PAIRS = {
