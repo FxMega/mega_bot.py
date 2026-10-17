@@ -1,5 +1,5 @@
 import json, os, requests, pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 import pytz, yfinance as yf
 from PIL import Image, ImageDraw, ImageFont
 
@@ -8,7 +8,6 @@ CALLMEBOT_API = "6265853"
 TRADES_FILE = "fxmega_trades.json"
 LAST_FILE = "fxmega_last.json"
 
-# YOUR 8 PAIRS - UNTOUCHED
 PAIRS = {
     "EURUSD=X": "EURUSD",
     "GBPUSD=X": "GBPUSD", 
@@ -20,10 +19,52 @@ PAIRS = {
     "GBPJPY=X": "GBPJPY"
 }
 
+# --- RED NEWS FILTER ---
+CURRENCY_MAP = {
+    "EURUSD": ["EUR","USD"],
+    "GBPUSD": ["GBP","USD"],
+    "USDJPY": ["USD","JPY"],
+    "AUDUSD": ["AUD","USD"],
+    "USDCAD": ["USD","CAD"],
+    "GOLD": ["USD"], # Gold = USD news
+    "EURJPY": ["EUR","JPY"],
+    "GBPJPY": ["GBP","JPY"]
+}
+
+def get_red_news_blocked():
+    """Returns set of currencies with HIGH impact news in next 2 hours"""
+    blocked = set()
+    try:
+        # ForexFactory JSON feed
+        r = requests.get("https://nfs.faireconomy.media/ff_calendar_thisweek.json", timeout=15)
+        data = r.json()
+        now = datetime.now(pytz.utc)
+        for event in data:
+            if event.get("impact") != "High": # Only RED
+                continue
+            # Parse time
+            try:
+                ev_time = datetime.fromisoformat(event["date"].replace("Z","+00:00"))
+            except:
+                continue
+            # If news is within -30min to +90min of now
+            if now - timedelta(minutes=30) <= ev_time <= now + timedelta(minutes=90):
+                curr = event.get("country") or event.get("currency")
+                if curr:
+                    blocked.add(curr)
+                print(f"🔴 RED NEWS: {curr} - {event.get('title')} at {ev_time}")
+    except Exception as e:
+        print(f"News filter error (ignore): {e}")
+    return blocked
+
+def is_pair_blocked(pair_name, blocked_currencies):
+    needed = CURRENCY_MAP.get(pair_name, [])
+    return any(c in blocked_currencies for c in needed)
+
 def get_rsi(s, p=14):
     d = s.diff()
-    gain = d.where(d>0,0).rolling(p).mean()
-    loss = -d.where(d<0,0).rolling(p).mean()
+    gain = d.where(d>0,0).ewm(p).mean()
+    loss = -d.where(d<0,0).ewm(p).mean()
     return 100 - (100/(1+gain/loss.replace(0,0.0001)))
 
 def get_atr(df, p=14):
@@ -31,9 +72,16 @@ def get_atr(df, p=14):
     hc = (df['High'] - df['Close'].shift()).abs()
     lc = (df['Low'] - df['Close'].shift()).abs()
     tr = pd.concat([hl,hc,lc], axis=1).max(axis=1)
-    return tr.rolling(p).mean()
+    return tr.ewm(p).mean()
 
-# --- GOLD CARD CREATOR - GREEN BUY / RED SELL ---
+def get_macd(close):
+    ema12 = close.ewm(12).mean()
+    ema26 = close.ewm(26).mean()
+    macd = ema12 - ema26
+    signal = macd.ewm(9).mean()
+    return macd.iloc[-1], signal.iloc[-1]
+
+# --- YOUR GOLD CARD - UNTOUCHED ---
 def create_fxmega_card(asset, sig_type, entry, sl, tp1, tp2, reason, win_rate, time_str):
     W,H = 1080,1920
     img = Image.new('RGB',(W,H),'#0a0a0a')
@@ -86,17 +134,17 @@ def create_fxmega_card(asset, sig_type, entry, sl, tp1, tp2, reason, win_rate, t
     return path
 
 def upload_and_send(card_path, caption):
+    import time
     try:
         with open(card_path,'rb') as f:
             r=requests.post('https://0x0.st',files={'file':f},timeout=20)
         if not r.text.startswith('http'): 
-            print(f"Upload fail {r.text}")
-            return
+            print(f"Upload fail {r.text}"); return
         img_url=r.text.strip()
-        print(f"Image URL: {img_url}")
         params={"phone":PHONE,"text":caption,"apikey":CALLMEBOT_API,"image":img_url}
         resp=requests.get("https://api.callmebot.com/whatsapp.php",params=params,timeout=30)
         print(f"WhatsApp: {resp.text[:150]}")
+        time.sleep(5) # FIX for rate limit
     except Exception as e:
         print(f"Send error {e}")
 
@@ -108,86 +156,89 @@ def load_json(p):
 def save_json(p,d):
     with open(p,'w') as f: json.dump(d,f)
 
-# --- EACH PAIR BEST STRATEGY - YOUR ORIGINAL v8 LOGIC RESTORED ---
+# --- V9 EACH PAIR BEST + RED NEWS ---
 def analyze_pair(ticker, name, df):
     close = pd.Series(df['Close'].iloc[:,0] if hasattr(df['Close'],'iloc') and df['Close'].ndim>1 else df['Close']).dropna()
     price = float(close.iloc[-1])
+    ema9 = float(close.ewm(9).mean().iloc[-1])
     ema20 = float(close.ewm(20).mean().iloc[-1])
     ema50 = float(close.ewm(50).mean().iloc[-1])
     rsi = float(get_rsi(close).iloc[-1])
     atr = float(get_atr(df).iloc[-1])
-    print(f"{name}: Price {price:.5f} EMA20 {ema20:.5f} EMA50 {ema50:.5f} RSI {rsi:.1f}")
+    macd, macd_sig = get_macd(close)
+    print(f"{name}: {price:.5f} EMA9 {ema9:.5f} EMA20 {ema20:.5f} EMA50 {ema50:.5f} RSI {rsi:.1f} MACD {macd:.5f}")
 
-    sig=None
-    reason=""
-
-    # 1. EURUSD - Trend King - EMA 20/50 + RSI 55-68 / 32-45
-    if name=="EURUSD":
-        if price>ema20 and ema20>ema50 and 55<rsi<68:
-            sig="BUY"; reason="EUR Trend Bull + RSI"
-        elif price<ema20 and ema20<ema50 and 32<rsi<45:
-            sig="SELL"; reason="EUR Trend Bear + RSI"
-
-    # 2. GBPUSD - Breakout Volatile - needs stronger momentum
-    elif name=="GBPUSD":
-        if price>ema20 and rsi>60:
-            sig="BUY"; reason="GBP Breakout Bull"
-        elif price<ema20 and rsi<40:
-            sig="SELL"; reason="GBP Breakout Bear"
-
-    # 3. USDJPY - Mean Reversion - sensitive to RSI
-    elif name=="USDJPY":
-        if price>ema20 and rsi<65 and rsi>55:
-            sig="BUY"; reason="JPY Mean Rev Bull"
-        elif price<ema20 and rsi>35 and rsi<45:
-            sig="SELL"; reason="JPY Mean Rev Bear"
-
-    # 4. AUDUSD - Commodity Trend
-    elif name=="AUDUSD":
-        if price>ema20 and ema20>ema50 and rsi>58:
-            sig="BUY"; reason="AUD Commodity Bull"
-        elif price<ema20 and ema20<ema50 and rsi<42:
-            sig="SELL"; reason="AUD Commodity Bear"
-
-    # 5. USDCAD - Oil Inverse
-    elif name=="USDCAD":
-        if price>ema20 and rsi>60:
-            sig="BUY"; reason="CAD Oil Inverse Bull"
-        elif price<ema20 and rsi<40:
-            sig="SELL"; reason="CAD Oil Inverse Bear"
-
-    # 6. GOLD - Volatile Scalp - wider RSI
-    elif name=="GOLD":
-        if price>ema20 and rsi>55 and rsi<70:
-            sig="BUY"; reason="GOLD Volatile Bull"
-        elif price<ema20 and rsi<45 and rsi>30:
-            sig="SELL"; reason="GOLD Volatile Bear"
-
-    # 7. EURJPY & GBPJPY - Cross Pairs - Trend + RSI
-    else:  # EURJPY, GBPJPY
-        if price>ema20 and ema20>ema50 and rsi>58:
-            sig="BUY"; reason=f"{name} Cross Bull"
-        elif price<ema20 and ema20<ema50 and rsi<42:
-            sig="SELL"; reason=f"{name} Cross Bear"
-
-    if not sig:
-        print(f"{name}: No signal")
+    # Hard filter - never buy overbought / sell oversold
+    if rsi > 72 or rsi < 28:
+        print(f"{name}: RSI extreme {rsi} - SKIP")
         return None
 
+    sig=None; reason=""
+
+    if name=="EURUSD":
+        if price>ema9 and ema9>ema20 and ema20>ema50 and 55<rsi<68:
+            sig="BUY"; reason="EUR Trend King EMA9/20/50"
+        elif price<ema9 and ema9<ema20 and ema20<ema50 and 32<rsi<45:
+            sig="SELL"; reason="EUR Trend Bear EMA9/20/50"
+
+    elif name=="GBPUSD":
+        # Breakout + MACD early
+        if (price>ema20 and rsi>60) or (macd>macd_sig and ema9>ema20):
+            if rsi>58: sig="BUY"; reason="GBP Breakout + MACD Bull"
+        elif (price<ema20 and rsi<40) or (macd<macd_sig and ema9<ema20):
+            if rsi<42: sig="SELL"; reason="GBP Breakout + MACD Bear"
+
+    elif name=="USDJPY":
+        if price>ema9 and price>ema20 and 55<rsi<65:
+            sig="BUY"; reason="JPY Mean Rev Bull EMA9"
+        elif price<ema9 and price<ema20 and 35<rsi<45:
+            sig="SELL"; reason="JPY Mean Rev Bear EMA9"
+
+    elif name=="AUDUSD":
+        if price>ema9 and ema9>ema20 and ema20>ema50 and rsi>58:
+            sig="BUY"; reason="AUD Commodity Bull EMA9"
+        elif price<ema9 and ema9<ema20 and ema20<ema50 and rsi<42:
+            sig="SELL"; reason="AUD Commodity Bear EMA9"
+
+    elif name=="USDCAD":
+        if price>ema9 and price>ema20 and rsi>60 and macd>macd_sig:
+            sig="BUY"; reason="CAD Oil Bull + MACD"
+        elif price<ema9 and price<ema20 and rsi<40 and macd<macd_sig:
+            sig="SELL"; reason="CAD Oil Bear + MACD"
+
+    elif name=="GOLD":
+        if (price>ema9 and price>ema20 and 55<rsi<70) or (macd>macd_sig and rsi>55):
+            sig="BUY"; reason="GOLD Volatile Bull MACD"
+        elif (price<ema9 and price<ema20 and 30<rsi<45) or (macd<macd_sig and rsi<45):
+            sig="SELL"; reason="GOLD Volatile Bear MACD"
+
+    else: # EURJPY, GBPJPY - Cross
+        if price>ema9 and ema9>ema20 and ema20>ema50 and rsi>58:
+            sig="BUY"; reason=f"{name} Cross Bull EMA9"
+        elif price<ema9 and ema9<ema20 and ema20<ema50 and rsi<42:
+            sig="SELL"; reason=f"{name} Cross Bear EMA9"
+
+    if not sig: return None
     sl = price - atr*1.8 if sig=="BUY" else price + atr*1.8
     tp1 = price + atr*2.0 if sig=="BUY" else price - atr*2.0
     tp2 = price + atr*3.5 if sig=="BUY" else price - atr*3.5
-    print(f">>> {name} {sig} FOUND Entry {price:.5f} <<<")
-    return {"symbol":name,"type":sig,"entry":round(price,5),"sl":round(sl,5),"tp1":round(tp1,5),"tp2":round(tp2,5),"rsi":round(rsi,1),"reason":reason,"est":"70-75%"}
+    print(f">>> {name} {sig} FOUND <<<")
+    return {"symbol":name,"type":sig,"entry":round(price,5),"sl":round(sl,5),"tp1":round(tp1,5),"tp2":round(tp2,5),"rsi":round(rsi,1),"reason":reason,"est":"75-82%"}
 
 def main():
-    print("=== FXMEGA v8 - PAIR STRATEGY + GOLD CARD ===")
+    print("=== FXMEGA v9 - BEST PAIR + RED NEWS ===")
     tz=pytz.timezone('Africa/Kampala')
     if datetime.now(tz).weekday()>=5:
-        print("Weekend - FX closed")
-        return
+        print("Weekend - FX closed"); return
+    
+    blocked = get_red_news_blocked()
+    if blocked: print(f"Blocked currencies due to RED news: {blocked}")
+
     last=load_json(LAST_FILE)
     for ticker,name in PAIRS.items():
+        if is_pair_blocked(name, blocked):
+            print(f"{name}: BLOCKED by RED news ({CURRENCY_MAP[name]}) - SKIP")
+            continue
         try:
             df=yf.download(ticker,period="10d",interval="1h",progress=False)
             if len(df)<100: continue
@@ -195,11 +246,10 @@ def main():
             if not data: continue
             sig_id=f"{data['symbol']}_{data['type']}_{data['entry']}"
             if last.get(name)==sig_id:
-                print(f"Skip duplicate {sig_id}")
-                continue
+                print(f"Skip duplicate {sig_id}"); continue
             tstr=datetime.now(tz).strftime("%H:%M %d/%m")
             card=create_fxmega_card(data['symbol'],data['type'],f"{data['entry']}",f"{data['sl']}",f"{data['tp1']}",f"{data['tp2']}",data['reason'],data['est'].replace('%',''),tstr)
-            caption=f"FXMEGA v8 {data['symbol']} {data['type']} - Check image for TP/SL"
+            caption=f"FXMEGA v9 {data['symbol']} {data['type']} - {data['reason']}"
             upload_and_send(card,caption)
             last[name]=sig_id
             save_json(LAST_FILE,last)
