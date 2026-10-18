@@ -25,7 +25,7 @@ jobs:
 
       - name: Run FXMEGA UG v6 PRO Bot
         run: |
-          python mega_bot.py
+          python fx_mega.py
 
       - name: Show completion time
         run: |
