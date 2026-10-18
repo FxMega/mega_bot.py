@@ -36,7 +36,7 @@ jobs:
 
       - name: 🔥 Run FXMEGA Bot v10.6
         run: |
-          python mega.py
+          python fx_mega.py
 
       - name: 💾 Save active trades
         run: |
