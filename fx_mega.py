@@ -4,30 +4,29 @@ import requests
 from datetime import datetime, timezone
 import pandas as pd
 
-# NTFY UNLIMITED PRETTY - NO LIMITS EVER
+# NTFY UNLIMITED v8 HEARTBEAT PRETTY
 NTFY_TOPIC = "gold-ai-ug-788408267"
 NTFY_URL = f"https://ntfy.sh/{NTFY_TOPIC}"
 BRAND_NAME = "FXMEGA UG"
 CONTACT_NUMBER = "0700848808"
 
 TRADING_PAIRS_CONFIG = {
-    "BTC-USD": {"pair_display_name": "BITCOIN","rsi_buy_threshold": 32,"rsi_sell_threshold": 68,"ema_fast_period": 20,"ema_slow_period": 50,"currency_affected_by_news": "USD","full_strategy_explanation": "BITCOIN EMA 20/50 trend filter BUY EMA20>EMA50 + RSI<32 SELL EMA20<EMA50 + RSI>68"},
-    "ETH-USD": {"pair_display_name": "ETHEREUM","rsi_buy_threshold": 30,"rsi_sell_threshold": 70,"ema_fast_period": 20,"ema_slow_period": 50,"currency_affected_by_news": "USD","full_strategy_explanation": "ETHEREUM RSI 30/70 wider volatile EMA20/50"},
-    "SOL-USD": {"pair_display_name": "SOLANA","rsi_buy_threshold": 35,"rsi_sell_threshold": 65,"ema_fast_period": 9,"ema_slow_period": 21,"currency_affected_by_news": "USD","full_strategy_explanation": "SOLANA fast EMA 9/21 RSI 35/65 scalp fast"},
-    "BNB-USD": {"pair_display_name": "BNB","rsi_buy_threshold": 38,"rsi_sell_threshold": 62,"ema_fast_period": 20,"ema_slow_period": 50,"currency_affected_by_news": "USD","full_strategy_explanation": "BNB low volatility RSI 38/62 EMA 20/50"},
-    "XRP-USD": {"pair_display_name": "XRP","rsi_buy_threshold": 30,"rsi_sell_threshold": 70,"ema_fast_period": 50,"ema_slow_period": 200,"currency_affected_by_news": "USD","full_strategy_explanation": "XRP big trend EMA 50/200 + RSI 30/70"},
-    "DOGE-USD": {"pair_display_name": "DOGECOIN","rsi_buy_threshold": 25,"rsi_sell_threshold": 75,"ema_fast_period": 20,"ema_slow_period": 50,"currency_affected_by_news": "USD","full_strategy_explanation": "DOGECOIN meme extremes RSI<25 BUY RSI>75 SELL"},
-    "GC=F": {"pair_display_name": "GOLD","rsi_buy_threshold": 35,"rsi_sell_threshold": 65,"ema_fast_period": 50,"ema_slow_period": 200,"currency_affected_by_news": "USD","full_strategy_explanation": "GOLD EMA 50/200 BUY price>EMA200 + RSI<35 SELL price<EMA50 + RSI>65"},
-    "SI=F": {"pair_display_name": "SILVER","rsi_buy_threshold": 40,"rsi_sell_threshold": 60,"ema_fast_period": 20,"ema_slow_period": 50,"currency_affected_by_news": "USD","full_strategy_explanation": "SILVER choppy RSI 40/60 EMA 20/50"},
-    "EURUSD=X": {"pair_display_name": "EURUSD","rsi_buy_threshold": 30,"rsi_sell_threshold": 70,"ema_fast_period": 50,"ema_slow_period": 200,"currency_affected_by_news": "EUR","full_strategy_explanation": "EURUSD low volatility EMA 50/200 + RSI 30/70"},
-    "GBPUSD=X": {"pair_display_name": "GBPUSD","rsi_buy_threshold": 32,"rsi_sell_threshold": 68,"ema_fast_period": 20,"ema_slow_period": 50,"currency_affected_by_news": "GBP","full_strategy_explanation": "GBPUSD volatile EMA 20/50 RSI 32/68"},
-    "USDJPY=X": {"pair_display_name": "USDJPY","rsi_buy_threshold": 25,"rsi_sell_threshold": 75,"ema_fast_period": 50,"ema_slow_period": 200,"currency_affected_by_news": "JPY","full_strategy_explanation": "USDJPY strong trends RSI 25/75 EMA 50/200"},
+    "BTC-USD": {"pair_display_name": "BITCOIN","rsi_buy_threshold": 32,"rsi_sell_threshold": 68,"ema_fast_period": 20,"ema_slow_period": 50,"currency_affected_by_news": "USD"},
+    "ETH-USD": {"pair_display_name": "ETHEREUM","rsi_buy_threshold": 30,"rsi_sell_threshold": 70,"ema_fast_period": 20,"ema_slow_period": 50,"currency_affected_by_news": "USD"},
+    "SOL-USD": {"pair_display_name": "SOLANA","rsi_buy_threshold": 35,"rsi_sell_threshold": 65,"ema_fast_period": 9,"ema_slow_period": 21,"currency_affected_by_news": "USD"},
+    "BNB-USD": {"pair_display_name": "BNB","rsi_buy_threshold": 38,"rsi_sell_threshold": 62,"ema_fast_period": 20,"ema_slow_period": 50,"currency_affected_by_news": "USD"},
+    "XRP-USD": {"pair_display_name": "XRP","rsi_buy_threshold": 30,"rsi_sell_threshold": 70,"ema_fast_period": 50,"ema_slow_period": 200,"currency_affected_by_news": "USD"},
+    "DOGE-USD": {"pair_display_name": "DOGECOIN","rsi_buy_threshold": 25,"rsi_sell_threshold": 75,"ema_fast_period": 20,"ema_slow_period": 50,"currency_affected_by_news": "USD"},
+    "GC=F": {"pair_display_name": "GOLD","rsi_buy_threshold": 35,"rsi_sell_threshold": 65,"ema_fast_period": 50,"ema_slow_period": 200,"currency_affected_by_news": "USD"},
+    "SI=F": {"pair_display_name": "SILVER","rsi_buy_threshold": 40,"rsi_sell_threshold": 60,"ema_fast_period": 20,"ema_slow_period": 50,"currency_affected_by_news": "USD"},
+    "EURUSD=X": {"pair_display_name": "EURUSD","rsi_buy_threshold": 30,"rsi_sell_threshold": 70,"ema_fast_period": 50,"ema_slow_period": 200,"currency_affected_by_news": "EUR"},
+    "GBPUSD=X": {"pair_display_name": "GBPUSD","rsi_buy_threshold": 32,"rsi_sell_threshold": 68,"ema_fast_period": 20,"ema_slow_period": 50,"currency_affected_by_news": "GBP"},
+    "USDJPY=X": {"pair_display_name": "USDJPY","rsi_buy_threshold": 25,"rsi_sell_threshold": 75,"ema_fast_period": 50,"ema_slow_period": 200,"currency_affected_by_news": "JPY"},
 }
 
 def get_red_news_blocked_currencies():
     blocked = set()
     try:
-        print("Starting RED NEWS check...")
         url = "https://nfs.faireconomy.media/ff_calendar_thisweek.json"
         r = requests.get(url, timeout=10)
         data = r.json()
@@ -39,19 +38,16 @@ def get_red_news_blocked_currencies():
             diff = (et - now).total_seconds()/60
             if -30 <= diff <= 60:
                 c = ev.get("country","").strip()
-                if c:
-                    blocked.add(c)
-                    print(f"RED NEWS: {c} - {ev.get('title')} in {diff:.0f}min")
+                if c: blocked.add(c)
     except Exception as e:
-        print(f"RED NEWS check failed: {e}")
+        print(f"RED NEWS failed: {e}")
     return blocked
 
 def calculate_rsi_and_ema_indicators(df, fast, slow):
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
     close = df['Close']
-    if isinstance(close, pd.DataFrame):
-        close = close.iloc[:,0]
+    if isinstance(close, pd.DataFrame): close = close.iloc[:,0]
     close = pd.Series(close).dropna()
     diff = close.diff()
     gains = diff.where(diff>0,0).rolling(14).mean()
@@ -67,82 +63,97 @@ def calculate_rsi_and_ema_indicators(df, fast, slow):
         return float(v)
     return safe_last(rsi), safe_last(ema_fast), safe_last(ema_slow), safe_last(close)
 
-def send_alert_message(msg, is_buy=True):
+def send_alert_message(msg, is_buy=True, is_heartbeat=False):
     try:
-        title = "🟢 BUY SIGNAL" if is_buy else "🔴 SELL SIGNAL"
-        tags = "moneybag,chart_with_upwards_trend" if is_buy else "money_with_wings,chart_with_downwards_trend"
+        if is_heartbeat:
+            title = "💤 HEARTBEAT - NO SIGNAL"
+            tags = "zzz,sleeping"
+        else:
+            title = "🟢 BUY SIGNAL" if is_buy else "🔴 SELL SIGNAL"
+            tags = "moneybag,chart_with_upwards_trend" if is_buy else "money_with_wings,chart_with_downwards_trend"
         r = requests.post(
             NTFY_URL,
             data=msg.encode('utf-8'),
-            headers={"Title": f"{title} - {BRAND_NAME}","Priority": "high","Tags": tags},
+            headers={"Title": f"{title} - {BRAND_NAME}","Priority": "default" if is_heartbeat else "high","Tags": tags},
             timeout=10
         )
-        print(f"SENT SUCCESSFULLY to ntfy {NTFY_TOPIC}: {msg[:120]}... Resp: {r.text[:80]}")
+        print(f"SENT: {msg[:100]}...")
     except Exception as e:
-        print(f"FAILED ntfy: {e}")
+        print(f"FAILED: {e}")
 
-print("=================================================================")
-print(f"{BRAND_NAME} v7 PRETTY NTFY UNLIMITED - STARTING RUN")
-print("=================================================================")
+print(f"{BRAND_NAME} v8 HEARTBEAT STARTING")
 blocked_now = get_red_news_blocked_currencies()
 print(f"Blocked: {blocked_now if blocked_now else 'None'}")
+
+signals_found = 0
+status_lines = []  # For heartbeat summary
+
 for sym, cfg in TRADING_PAIRS_CONFIG.items():
     curr = cfg["currency_affected_by_news"]
     name = cfg["pair_display_name"]
-    if curr in blocked_now: print(f"{name} SKIPPED RED NEWS {curr}"); continue
-    if "USD" in blocked_now and name in ["GOLD","SILVER","BITCOIN","ETHEREUM","BNB"]: print(f"{name} SKIPPED USD RED NEWS"); continue
+    if curr in blocked_now: status_lines.append(f"{name}: BLOCKED {curr}"); continue
+    if "USD" in blocked_now and name in ["GOLD","SILVER","BITCOIN","ETHEREUM","BNB"]: status_lines.append(f"{name}: BLOCKED USD"); continue
     try:
-        print(f"\n--- ANALYZING {name} ({sym}) ---")
         df = yf.download(sym, period="5d", interval="15m", progress=False, auto_adjust=True)
-        if df.empty or len(df)<60: print(f"{name} NO DATA"); continue
+        if df.empty or len(df)<60: status_lines.append(f"{name}: NO DATA"); continue
         rsi, ef, es, price = calculate_rsi_and_ema_indicators(df, cfg["ema_fast_period"], cfg["ema_slow_period"])
-        print(f"{name} CURRENT: Price={price:.2f} RSI={rsi:.1f} EMA{cfg['ema_fast_period']}={ef:.2f} EMA{cfg['ema_slow_period']}={es:.2f}")
+        print(f"{name} Price={price:.2f} RSI={rsi:.1f}")
+        status_lines.append(f"{name} {price:.2f} RSI {rsi:.1f}")
+        
         buy=False; sell=False; reason=""
         if name in ["DOGECOIN","USDJPY"]:
-            if rsi < cfg["rsi_buy_threshold"]: buy=True; reason=f"EXTREME OVERSOLD RSI {rsi:.1f} < {cfg['rsi_buy_threshold']}"
-            elif rsi > cfg["rsi_sell_threshold"]: sell=True; reason=f"EXTREME OVERBOUGHT RSI {rsi:.1f} > {cfg['rsi_sell_threshold']}"
+            if rsi < cfg["rsi_buy_threshold"]: buy=True; reason=f"OVERSOLD {rsi:.1f}"
+            elif rsi > cfg["rsi_sell_threshold"]: sell=True; reason=f"OVERBOUGHT {rsi:.1f}"
         elif name=="GOLD":
-            if rsi < cfg["rsi_buy_threshold"] and price>es: buy=True; reason=f"GOLD UPTREND Price {price:.2f}>EMA200 {es:.2f} RSI {rsi:.1f}"
-            elif rsi > cfg["rsi_sell_threshold"] and price<ef: sell=True; reason=f"GOLD DOWNTREND Price {price:.2f}<EMA50 {ef:.2f} RSI {rsi:.1f}"
+            if rsi < cfg["rsi_buy_threshold"] and price>es: buy=True; reason=f"UPTREND RSI {rsi:.1f}"
+            elif rsi > cfg["rsi_sell_threshold"] and price<ef: sell=True; reason=f"DOWNTREND RSI {rsi:.1f}"
         else:
-            if rsi < cfg["rsi_buy_threshold"] and ef>es: buy=True; reason=f"UPTREND EMA{cfg['ema_fast_period']} {ef:.2f}>EMA{cfg['ema_slow_period']} {es:.2f} RSI {rsi:.1f}"
-            elif rsi > cfg["rsi_sell_threshold"] and ef<es: sell=True; reason=f"DOWNTREND EMA{cfg['ema_fast_period']} {ef:.2f}<EMA{cfg['ema_slow_period']} {es:.2f} RSI {rsi:.1f}"
+            if rsi < cfg["rsi_buy_threshold"] and ef>es: buy=True; reason=f"UPTREND RSI {rsi:.1f}"
+            elif rsi > cfg["rsi_sell_threshold"] and ef<es: sell=True; reason=f"DOWNTREND RSI {rsi:.1f}"
+        
         entry=price
         if buy:
-            if name in ["BITCOIN","ETHEREUM","SOLANA","BNB","XRP","DOGECOIN"]: sl=entry*0.975; tp1=entry*1.015; tp2=entry*1.03; tp3=entry*1.06
-            elif name in ["GOLD","SILVER"]: sl=entry*0.992; tp1=entry*1.005; tp2=entry*1.01; tp3=entry*1.015
-            else: sl=entry*0.995; tp1=entry*1.003; tp2=entry*1.006; tp3=entry*1.009
+            sl=entry*0.975 if name in ["BITCOIN","ETHEREUM","SOLANA","BNB","XRP","DOGECOIN"] else entry*0.992 if name in ["GOLD","SILVER"] else entry*0.995
+            tp1=entry*1.015 if name in ["BITCOIN","ETHEREUM","SOLANA","BNB","XRP","DOGECOIN"] else entry*1.005 if name in ["GOLD","SILVER"] else entry*1.003
+            tp2=entry*1.03 if name in ["BITCOIN","ETHEREUM","SOLANA","BNB","XRP","DOGECOIN"] else entry*1.01 if name in ["GOLD","SILVER"] else entry*1.006
+            tp3=entry*1.06 if name in ["BITCOIN","ETHEREUM","SOLANA","BNB","XRP","DOGECOIN"] else entry*1.015 if name in ["GOLD","SILVER"] else entry*1.009
             msg = f"""💰 {name} BUY SIGNAL
 📍 ENTRY: {entry:.2f}
-🎯 TP1: {tp1:.2f}
-🎯 TP2: {tp2:.2f}
-🎯 TP3: {tp3:.2f}
+🎯 TP1: {tp1:.2f} TP2: {tp2:.2f} TP3: {tp3:.2f}
 🔴 SL: {sl:.2f}
-📊 RSI: {rsi:.1f}
-💡 {reason}
-✅ Safe - No Red News
-📞 {CONTACT_NUMBER}
-🏦 {BRAND_NAME} v7 PRETTY"""
-            send_alert_message(msg, is_buy=True); time.sleep(6)
+📊 RSI: {rsi:.1f} - {reason}
+✅ Safe
+📞 {CONTACT_NUMBER}"""
+            send_alert_message(msg, is_buy=True); signals_found+=1; time.sleep(6)
         elif sell:
-            if name in ["BITCOIN","ETHEREUM","SOLANA","BNB","XRP","DOGECOIN"]: sl=entry*1.025; tp1=entry*0.985; tp2=entry*0.97; tp3=entry*0.94
-            elif name in ["GOLD","SILVER"]: sl=entry*1.008; tp1=entry*0.995; tp2=entry*0.99; tp3=entry*0.985
-            else: sl=entry*1.005; tp1=entry*0.997; tp2=entry*0.994; tp3=entry*0.991
+            sl=entry*1.025 if name in ["BITCOIN","ETHEREUM","SOLANA","BNB","XRP","DOGECOIN"] else entry*1.008 if name in ["GOLD","SILVER"] else entry*1.005
+            tp1=entry*0.985 if name in ["BITCOIN","ETHEREUM","SOLANA","BNB","XRP","DOGECOIN"] else entry*0.995 if name in ["GOLD","SILVER"] else entry*0.997
+            tp2=entry*0.97 if name in ["BITCOIN","ETHEREUM","SOLANA","BNB","XRP","DOGECOIN"] else entry*0.99 if name in ["GOLD","SILVER"] else entry*0.994
+            tp3=entry*0.94 if name in ["BITCOIN","ETHEREUM","SOLANA","BNB","XRP","DOGECOIN"] else entry*0.985 if name in ["GOLD","SILVER"] else entry*0.991
             msg = f"""💸 {name} SELL SIGNAL
 📍 ENTRY: {entry:.2f}
-🎯 TP1: {tp1:.2f}
-🎯 TP2: {tp2:.2f}
-🎯 TP3: {tp3:.2f}
+🎯 TP1: {tp1:.2f} TP2: {tp2:.2f} TP3: {tp3:.2f}
 🟢 SL: {sl:.2f}
-📊 RSI: {rsi:.1f}
-💡 {reason}
-✅ Safe - No Red News
-📞 {CONTACT_NUMBER}
-🏦 {BRAND_NAME} v7 PRETTY"""
-            send_alert_message(msg, is_buy=False); time.sleep(6)
-        else: print(f"{name} -> WAIT RSI {rsi:.1f}")
+📊 RSI: {rsi:.1f} - {reason}
+✅ Safe
+📞 {CONTACT_NUMBER}"""
+            send_alert_message(msg, is_buy=False); signals_found+=1; time.sleep(6)
     except Exception as e: print(f"Error {name}: {e}")
-    print("Waiting 1 sec..."); time.sleep(1)
-print("=================================================================")
-print("FXMEGA UG v7 PRETTY UNLIMITED - Completed successfully")
-print("=================================================================")
+    time.sleep(1)
+
+# HEARTBEAT - if no signals, send summary
+if signals_found == 0:
+    summary = "\n".join(status_lines[:11])
+    heartbeat_msg = f"""💤 NO SIGNAL - All WAIT
+{summary}
+
+⏰ Next check in 1hr
+🟢 Bot is ALIVE & Scanning
+📞 {CONTACT_NUMBER}
+🏦 {BRAND_NAME} v8"""
+    send_alert_message(heartbeat_msg, is_heartbeat=True)
+    print("HEARTBEAT SENT - No signals found")
+else:
+    print(f"Done - {signals_found} signals sent, no heartbeat needed")
+
+print("v8 HEARTBEAT Completed")
