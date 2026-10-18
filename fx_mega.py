@@ -7,7 +7,7 @@ import time, json, os
 NTFY_TOPIC = "gold-ai-ug-788408267"
 NTFY_URL = f"https://ntfy.sh/{NTFY_TOPIC}"
 BRAND = "FXMEGA UG"
-CONTACT = "📞 0700848808"
+CONTACT = "0700848808"
 TRADE_FILE = "active_trades.json"
 
 PAIRS = {
@@ -28,7 +28,6 @@ DXY_SYMBOL = "DX-Y.NYB"
 
 def send(msg, is_buy=True):
     try:
-        # FIXED: Title has NO emoji - HTTP header is latin-1 only
         if "BUY" in msg and "SIGNAL" in msg:
             title = "BUY SIGNAL"
             tag = "moneybag"
@@ -48,7 +47,7 @@ def send(msg, is_buy=True):
                           "Content-Type": "text/plain; charset=utf-8"
                       }, timeout=10)
         print(f"SENT: {msg[:100]}")
-        time.sleep(6)  # 6 SECOND SLEEP
+        time.sleep(6)
     except Exception as e:
         print(f"Send error: {e}")
         time.sleep(6)
@@ -86,6 +85,16 @@ def f(x):
         if hasattr(x, 'iloc'): return float(x.iloc[0])
         return float(x)
     except: return float(x)
+
+def fmt_price(p):
+    try:
+        p = float(p)
+        if p < 0.01: return f"{p:.6f}"
+        elif p < 1: return f"{p:.5f}"
+        elif p < 10: return f"{p:.4f}"
+        elif p < 100: return f"{p:.3f}"
+        else: return f"{p:.2f}"
+    except: return str(p)
 
 def get_dxy():
     try:
@@ -129,8 +138,8 @@ for sym, name in PAIRS.items():
         if hit_tp4:
             send(f"""🏁🎉 {name} TP4 HIT - CLOSE ALL! 💰💰💰
 {'🟢' if side == 'BUY' else '🔴'} {side} {name}
-💵 TP4 {tp4:.2f} HIT at {cur:.2f}
-💸 Profit: +{abs(cur-entry):.2f} 🚀
+💵 TP4 {fmt_price(tp4)} HIT at {fmt_price(cur)}
+💸 Profit: +{fmt_price(abs(cur-entry))} 🚀
 ✅ Close remaining 25%
 {CONTACT} {BRAND} 🌟""", is_buy=side == "BUY")
             del active[name]; save_trades(active); continue
@@ -138,26 +147,26 @@ for sym, name in PAIRS.items():
         if hit_tp3 and stage < 3:
             send(f"""🔒➡️ {name} TRAIL TO TP2 📈
 {'🟢' if side == 'BUY' else '🔴'} {side} {name}
-🎯 TP3 {tp3:.2f} HIT!
-🔄 Move SL {t['sl']:.2f} ➡️ {tp2:.2f}
-💰 Lock profit: +{abs(tp2-entry):.2f} 💵
+🎯 TP3 {fmt_price(tp3)} HIT!
+🔄 Move SL {fmt_price(t['sl'])} ➡️ {fmt_price(tp2)}
+💰 Lock profit: +{fmt_price(abs(tp2-entry))} 💵
 {CONTACT} {BRAND}""", is_buy=side == "BUY")
             t['sl'] = tp2; t['stage'] = 3; active[name] = t; save_trades(active); continue
 
         if hit_tp2 and stage < 2:
             send(f"""🔒➡️ {name} TRAIL TO TP1 📈🔥
 {'🟢' if side == 'BUY' else '🔴'} {side} {name}
-🎯 TP2 {tp2:.2f} HIT at {cur:.2f}
-🔄 SL -> {tp1:.2f} (TP1)
-💰 Locked: +{abs(tp1-entry):.2f} 💵💵
+🎯 TP2 {fmt_price(tp2)} HIT at {fmt_price(cur)}
+🔄 SL -> {fmt_price(tp1)} (TP1)
+💰 Locked: +{fmt_price(abs(tp1-entry))} 💵💵
 {CONTACT} {BRAND}""", is_buy=side == "BUY")
             t['sl'] = tp1; t['stage'] = 2; active[name] = t; save_trades(active); continue
 
         if hit_tp1 and stage < 1:
             send(f"""🔒✨ {name} AUTO BE TRIGGERED 🛡️
 {'🟢' if side == 'BUY' else '🔴'} {side} {name}
-🎯 TP1 {tp1:.2f} HIT at {cur:.2f} ✅✅
-👉 ACTION: MOVE SL TO BE {entry:.2f}
+🎯 TP1 {fmt_price(tp1)} HIT at {fmt_price(cur)} ✅✅
+👉 ACTION: MOVE SL TO BE {fmt_price(entry)}
 😎 Risk free now! No loss 💪
 {CONTACT} {BRAND} 🚀""", is_buy=side == "BUY")
             t['sl'] = entry; t['stage'] = 1; active[name] = t; save_trades(active); continue
@@ -192,12 +201,22 @@ for sym, name in PAIRS.items():
 
         close = df['Close']; high = df['High']; low = df['Low']; open_ = df['Open']
         tr = pd.concat([high-low, (high-close.shift()).abs(), (low-close.shift()).abs()], axis=1).max(axis=1)
-        atr = f(tr.rolling(14).mean().iloc[-1])
+        atr_raw = f(tr.rolling(14).mean().iloc[-1])
 
         ema13 = close.ewm(span=13).mean()
         ema_now = f(ema13.iloc[-1]); ema_prev = f(ema13.iloc[-2])
         up = ema_now > ema_prev; down = ema_now < ema_prev
         cur = f(close.iloc[-1]); hnow = f(high.iloc[-1]); lnow = f(low.iloc[-1])
+
+        # FIX ATR FOR LOW PRICE - DOGE, XRP, etc
+        atr = atr_raw
+        min_atr = cur * 0.005
+        if atr < min_atr:
+            atr = min_atr
+        if cur < 1.0 and atr < cur * 0.01:
+            atr = cur * 0.01
+        if atr == 0 or atr is None:
+            atr = cur * 0.01
 
         pdh = f(df_d['High'].iloc[-2]); pdl = f(df_d['Low'].iloc[-2]); crt50 = (pdh+pdl)/2
         bull_crt = lnow < pdl and cur > pdl and cur > crt50
@@ -222,13 +241,13 @@ for sym, name in PAIRS.items():
                 continue
             buy_signal = base_buy and dxy_below and dxy_down
             sell_signal = base_sell and dxy_above and dxy_up
-            dxy_msg = f"💵 DXY {dxy_cur:.2f} {'📉 BELOW+DOWN✅' if (dxy_below and dxy_down) else '📈 ABOVE+UP✅' if (dxy_above and dxy_up) else '❌ FAIL'}"
+            dxy_msg = f"💵 DXY {fmt_price(dxy_cur)} {'📉 BELOW+DOWN✅' if (dxy_below and dxy_down) else '📈 ABOVE+UP✅' if (dxy_above and dxy_up) else '❌ FAIL'}"
         else:
             buy_signal = base_buy
             sell_signal = base_sell
             dxy_msg = "✨ No DXY needed"
 
-        print(f"{name} {cur:.2f} EMA {ema_now:.2f} {'UP' if up else 'DOWN'} Buy:{base_buy} Sell:{base_sell} {dxy_msg if name=='GOLD' else ''}")
+        print(f"{name} {fmt_price(cur)} EMA {fmt_price(ema_now)} {'UP' if up else 'DOWN'} Buy:{base_buy} Sell:{base_sell} ATR:{fmt_price(atr)}")
 
         if buy_signal or sell_signal:
             side = "BUY" if buy_signal else "SELL"
@@ -241,20 +260,20 @@ for sym, name in PAIRS.items():
             active[name] = {"side": side, "entry": cur, "sl": sl, "tp1": tp1, "tp2": tp2, "tp3": tp3, "tp4": tp4, "stage": 0, "time": str(datetime.now(timezone.utc))}
             save_trades(active)
 
-            msg = f"""{emoji_side} {name} v10.7 {'+DXY 💵' if name == 'GOLD' else ''} ✅
+            msg = f"""{emoji_side} {name} v10.8 {'+DXY 💵' if name == 'GOLD' else ''} ✅
 ⭐⭐⭐ {side} SIGNAL {name} ⭐⭐⭐
-💰 ENTRY: {cur:.2f}
+💰 ENTRY: {fmt_price(cur)}
 🔍 CRT: {'✅ YES' if (bull_crt or bear_crt) else '❌ NO'} | CSD: {'✅ YES' if (bull_csd or bear_csd) else '❌ NO'} 💪 {bp*100:.0f}%
-📊 EMA13: {ema_now:.2f} {'📈 UP ✅' if up else '📉 DOWN ✅'}
-⚡ Power: {(bulls_now if side == 'BUY' else bears_now):.2f} {'🟢' if (bulls_ok or bears_ok) else '🔴'} ✅
+📊 EMA13: {fmt_price(ema_now)} {'📈 UP ✅' if up else '📉 DOWN ✅'}
+⚡ Power: {(bulls_now if side == 'BUY' else bears_now):.4f} {'🟢' if (bulls_ok or bears_ok) else '🔴'} ✅
 {dxy_msg}
-📏 ATR: {atr:.2f}
+📏 ATR: {fmt_price(atr)}
 
-🛑 SL: {sl:.2f} (1.2x ATR)
-🎯 TP1: {tp1:.2f} (1.5x) -> 🔒 BE AUTO 🛡️
-🎯 TP2: {tp2:.2f} (2.0x) -> 🔒 Trail TP1 📈
-🎯 TP3: {tp3:.2f} (2.5x) -> 🔒 Trail TP2 💰
-🎯 TP4: {tp4:.2f} (3.0x) -> 🏁 CLOSE 🎉
+🛑 SL: {fmt_price(sl)} (1.2x ATR)
+🎯 TP1: {fmt_price(tp1)} (1.5x) -> 🔒 BE AUTO 🛡️
+🎯 TP2: {fmt_price(tp2)} (2.0x) -> 🔒 Trail TP1 📈
+🎯 TP3: {fmt_price(tp3)} (2.5x) -> 🔒 Trail TP2 💰
+🎯 TP4: {fmt_price(tp4)} (3.0x) -> 🏁 CLOSE 🎉
 
 ⏱️ M15 + Auto BE/Trail + 6s ⏳
 {CONTACT} {BRAND} 🚀🌟💵"""
@@ -263,4 +282,4 @@ for sym, name in PAIRS.items():
     except Exception as e:
         print(f"Scan {name}: {e}")
 
-print("✅ v10.7 FIXED - EMOJI BUG SOLVED + 6s DONE 🎉🚀💰")
+print("✅ v10.8 FIXED - DOGE decimals + ATR + EMOJI BUG SOLVED 🎉🚀💰")
