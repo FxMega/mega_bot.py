@@ -1,32 +1,28 @@
-name: FXMEGA UG v6 PRO FINAL
+name: FXMEGA UG NTFY UNLIMITED
 
 on:
   schedule:
-    - cron: '0 * * * *'  # Every 1 hour at minute 0
-  workflow_dispatch:     # Allows manual Run button
+    - cron: '0 * * * *'  # Runs every hour at 0 minute (EAT is +3)
+  workflow_dispatch:  # Allows manual run button
 
 jobs:
-  run-trading-bot:
+  run-bot:
     runs-on: ubuntu-latest
     
     steps:
-      - name: Checkout repository code
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Python 3.11
-        uses: actions/setup-python@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.10'
 
-      - name: Install required Python packages
+      - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install yfinance requests
+          pip install --upgrade pip
+          pip install yfinance pandas requests
 
-      - name: Run FXMEGA UG v6 PRO Bot
+      - name: Run FXMEGA Bot
         run: |
           python fx_mega.py
-
-      - name: Show completion time
-        run: |
-          echo "Bot finished at $(date)"
