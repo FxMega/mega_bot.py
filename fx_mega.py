@@ -12,7 +12,7 @@ TRADE_FILE = "active_trades.json"
 
 PAIRS = {
     "BTC-USD": "BITCOIN",
-    "ETH-USD": "ETHEREUM", 
+    "ETH-USD": "ETHEREUM",
     "SOL-USD": "SOLANA",
     "BNB-USD": "BNB",
     "XRP-USD": "XRP",
@@ -28,21 +28,29 @@ DXY_SYMBOL = "DX-Y.NYB"
 
 def send(msg, is_buy=True):
     try:
+        # FIXED: Title has NO emoji - HTTP header is latin-1 only
         if "BUY" in msg and "SIGNAL" in msg:
-            title = "🔥 BUY SIGNAL"
+            title = "BUY SIGNAL"
             tag = "moneybag"
         elif "SELL" in msg and "SIGNAL" in msg:
-            title = "🔻 SELL SIGNAL"
+            title = "SELL SIGNAL"
             tag = "money_with_wings"
         else:
-            title = "🔒 BE/TRAIL ALERT"
+            title = "BE/TRAIL ALERT"
             tag = "rocket"
-        requests.post(NTFY_URL, data=msg.encode('utf-8'),
-                      headers={"Title": f"{title} - {BRAND}", "Priority": "high", "Tags": tag}, timeout=10)
-        print(f"✅ SENT: {msg[:90]}")
-        time.sleep(6)
+        
+        requests.post(NTFY_URL,
+                      data=msg.encode('utf-8'),
+                      headers={
+                          "Title": f"{title} - {BRAND}",
+                          "Priority": "high",
+                          "Tags": tag,
+                          "Content-Type": "text/plain; charset=utf-8"
+                      }, timeout=10)
+        print(f"SENT: {msg[:100]}")
+        time.sleep(6)  # 6 SECOND SLEEP
     except Exception as e:
-        print(f"❌ Send error: {e}")
+        print(f"Send error: {e}")
         time.sleep(6)
 
 def load_trades():
@@ -97,7 +105,7 @@ def get_dxy():
 
 # === 1. AUTO BE + TRAILING ===
 active = load_trades()
-print(f"📂 Active trades: {len(active)}")
+print(f"Active trades: {len(active)}")
 
 for sym, name in PAIRS.items():
     if name not in active: continue
@@ -155,24 +163,24 @@ for sym, name in PAIRS.items():
             t['sl'] = entry; t['stage'] = 1; active[name] = t; save_trades(active); continue
 
     except Exception as e:
-        print(f"❌ Trail {name}: {e}")
+        print(f"Trail {name}: {e}")
 
 # === 2. NEW SIGNALS SCAN ===
 blocked = get_red_news()
 dxy_cur, dxy_ema, dxy_below, dxy_above, dxy_up, dxy_down = get_dxy()
-print(f"💵 DXY {dxy_cur} EMA {dxy_ema} Below:{dxy_below} Down:{dxy_down} Above:{dxy_above} Up:{dxy_up}")
-print(f"🚫 Blocked news: {blocked}")
+print(f"DXY {dxy_cur} EMA {dxy_ema} Below:{dxy_below} Down:{dxy_down} Above:{dxy_above} Up:{dxy_up}")
+print(f"Blocked news: {blocked}")
 
 for sym, name in PAIRS.items():
     if name in active:
-        print(f"⏭️ {name}: in trade skip")
+        print(f"{name}: in trade skip")
         continue
     if "USD=X" in sym and is_weekend():
-        print(f"⏭️ {name}: weekend closed")
+        print(f"{name}: weekend closed")
         continue
     curr = "EUR" if "EUR" in name else "GBP" if "GBP" in name else "JPY" if "JPY" in name else "USD"
     if curr in blocked or ("USD" in blocked and name in ["GOLD", "SILVER", "BITCOIN", "ETHEREUM", "BNB"]):
-        print(f"🚫 {name}: news blocked")
+        print(f"{name}: news blocked")
         continue
 
     try:
@@ -210,7 +218,7 @@ for sym, name in PAIRS.items():
 
         if name == "GOLD":
             if dxy_cur is None:
-                print("⚠️ GOLD skip DXY fail")
+                print("GOLD skip DXY fail")
                 continue
             buy_signal = base_buy and dxy_below and dxy_down
             sell_signal = base_sell and dxy_above and dxy_up
@@ -220,7 +228,7 @@ for sym, name in PAIRS.items():
             sell_signal = base_sell
             dxy_msg = "✨ No DXY needed"
 
-        print(f"🔍 {name} {cur:.2f} EMA {ema_now:.2f} {'UP' if up else 'DOWN'} Buy:{base_buy} Sell:{base_sell} {dxy_msg if name=='GOLD' else ''}")
+        print(f"{name} {cur:.2f} EMA {ema_now:.2f} {'UP' if up else 'DOWN'} Buy:{base_buy} Sell:{base_sell} {dxy_msg if name=='GOLD' else ''}")
 
         if buy_signal or sell_signal:
             side = "BUY" if buy_signal else "SELL"
@@ -233,7 +241,7 @@ for sym, name in PAIRS.items():
             active[name] = {"side": side, "entry": cur, "sl": sl, "tp1": tp1, "tp2": tp2, "tp3": tp3, "tp4": tp4, "stage": 0, "time": str(datetime.now(timezone.utc))}
             save_trades(active)
 
-            msg = f"""{emoji_side} {name} v10.6 {'+DXY 💵' if name == 'GOLD' else ''} ✅
+            msg = f"""{emoji_side} {name} v10.7 {'+DXY 💵' if name == 'GOLD' else ''} ✅
 ⭐⭐⭐ {side} SIGNAL {name} ⭐⭐⭐
 💰 ENTRY: {cur:.2f}
 🔍 CRT: {'✅ YES' if (bull_crt or bear_crt) else '❌ NO'} | CSD: {'✅ YES' if (bull_csd or bear_csd) else '❌ NO'} 💪 {bp*100:.0f}%
@@ -253,6 +261,6 @@ for sym, name in PAIRS.items():
             send(msg, is_buy=buy_signal)
 
     except Exception as e:
-        print(f"❌ Scan {name}: {e}")
+        print(f"Scan {name}: {e}")
 
-print("✅ v10.6 FINAL WITH EMOJIS + 6s DONE 🎉🚀💰")
+print("✅ v10.7 FIXED - EMOJI BUG SOLVED + 6s DONE 🎉🚀💰")
