@@ -4,7 +4,6 @@ import requests
 from datetime import datetime, timezone
 import pandas as pd
 
-# NTFY UNLIMITED v8 HEARTBEAT PRETTY
 NTFY_TOPIC = "gold-ai-ug-788408267"
 NTFY_URL = f"https://ntfy.sh/{NTFY_TOPIC}"
 BRAND_NAME = "FXMEGA UG"
@@ -66,27 +65,27 @@ def calculate_rsi_and_ema_indicators(df, fast, slow):
 def send_alert_message(msg, is_buy=True, is_heartbeat=False):
     try:
         if is_heartbeat:
-            title = "💤 HEARTBEAT - NO SIGNAL"
-            tags = "zzz,sleeping"
+            title = "HEARTBEAT - NO SIGNAL"
+            tags = "zzz"
         else:
-            title = "🟢 BUY SIGNAL" if is_buy else "🔴 SELL SIGNAL"
-            tags = "moneybag,chart_with_upwards_trend" if is_buy else "money_with_wings,chart_with_downwards_trend"
+            title = "BUY SIGNAL" if is_buy else "SELL SIGNAL"
+            tags = "moneybag" if is_buy else "money_with_wings"
         r = requests.post(
             NTFY_URL,
             data=msg.encode('utf-8'),
             headers={"Title": f"{title} - {BRAND_NAME}","Priority": "default" if is_heartbeat else "high","Tags": tags},
             timeout=10
         )
-        print(f"SENT: {msg[:100]}...")
+        print(f"SENT SUCCESS: {msg[:120]}")
     except Exception as e:
         print(f"FAILED: {e}")
 
-print(f"{BRAND_NAME} v8 HEARTBEAT STARTING")
+print(f"{BRAND_NAME} v8.1 HEARTBEAT FIXED STARTING")
 blocked_now = get_red_news_blocked_currencies()
 print(f"Blocked: {blocked_now if blocked_now else 'None'}")
 
 signals_found = 0
-status_lines = []  # For heartbeat summary
+status_lines = []
 
 for sym, cfg in TRADING_PAIRS_CONFIG.items():
     curr = cfg["currency_affected_by_news"]
@@ -122,8 +121,9 @@ for sym, cfg in TRADING_PAIRS_CONFIG.items():
 🎯 TP1: {tp1:.2f} TP2: {tp2:.2f} TP3: {tp3:.2f}
 🔴 SL: {sl:.2f}
 📊 RSI: {rsi:.1f} - {reason}
-✅ Safe
-📞 {CONTACT_NUMBER}"""
+✅ Safe - No Red News
+📞 {CONTACT_NUMBER}
+🏦 {BRAND_NAME}"""
             send_alert_message(msg, is_buy=True); signals_found+=1; time.sleep(6)
         elif sell:
             sl=entry*1.025 if name in ["BITCOIN","ETHEREUM","SOLANA","BNB","XRP","DOGECOIN"] else entry*1.008 if name in ["GOLD","SILVER"] else entry*1.005
@@ -135,25 +135,25 @@ for sym, cfg in TRADING_PAIRS_CONFIG.items():
 🎯 TP1: {tp1:.2f} TP2: {tp2:.2f} TP3: {tp3:.2f}
 🟢 SL: {sl:.2f}
 📊 RSI: {rsi:.1f} - {reason}
-✅ Safe
-📞 {CONTACT_NUMBER}"""
+✅ Safe - No Red News
+📞 {CONTACT_NUMBER}
+🏦 {BRAND_NAME}"""
             send_alert_message(msg, is_buy=False); signals_found+=1; time.sleep(6)
     except Exception as e: print(f"Error {name}: {e}")
     time.sleep(1)
 
-# HEARTBEAT - if no signals, send summary
 if signals_found == 0:
     summary = "\n".join(status_lines[:11])
     heartbeat_msg = f"""💤 NO SIGNAL - All WAIT
 {summary}
 
 ⏰ Next check in 1hr
-🟢 Bot is ALIVE & Scanning
+🟢 Bot is ALIVE
 📞 {CONTACT_NUMBER}
-🏦 {BRAND_NAME} v8"""
+🏦 {BRAND_NAME}"""
     send_alert_message(heartbeat_msg, is_heartbeat=True)
-    print("HEARTBEAT SENT - No signals found")
+    print("HEARTBEAT SENT")
 else:
-    print(f"Done - {signals_found} signals sent, no heartbeat needed")
+    print(f"Done - {signals_found} signals sent")
 
-print("v8 HEARTBEAT Completed")
+print("v8.1 Completed")
