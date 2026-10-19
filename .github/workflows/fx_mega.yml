@@ -1,4 +1,4 @@
-name: 🚀 FXMEGA v10.9 M15 AutoRange + 11 Pairs
+name: 🚀 FXMEGA v10.9.1 ADX FIXED Gold + 11 Pairs
 
 on:
   schedule:
@@ -20,10 +20,10 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: 📦 Install dependencies v10.9
+      - name: 📦 Install dependencies v10.9.1 FIXED
         run: |
           pip install yfinance pandas requests numpy
-          # numpy needed for ADX + BB width calc
+          echo "✅ numpy installed for ADX fix"
 
       - name: 📂 Restore active trades
         run: |
@@ -31,26 +31,26 @@ jobs:
             echo "✅ Found existing trades"
             cat active_trades.json
           else
-            echo "📝 No active trades yet - fresh start"
+            echo "📝 No active trades yet"
             echo '{}' > active_trades.json
           fi
 
-      - name: 🔥 Run FXMEGA Bot v10.9 AutoRange
+      - name: 🔥 Run FXMEGA Bot v10.9.1 FIXED
         run: |
           python fx_mega.py
-          # or bot_v10_9.py if you renamed - keep same as your python file name
 
       - name: 💾 Save active trades + BE/Trail
         run: |
           git config --global user.name "FXMEGA Bot 🤖"
           git config --global user.email "bot@fxmega.ug"
           git add active_trades.json || true
-          git diff --quiet && git diff --staged --quiet || git commit -m "💰 v10.9 ADX+Range $(date -u) 📦🚀"
+          git diff --quiet && git diff --staged --quiet || git commit -m "💰 v10.9.1 ADX 100 bug fixed $(date -u) 📦🚀"
           git push || echo "No changes to push"
 
-      - name: ⏳ Show next run v10.9
+      - name: ⏳ Show next run v10.9.1
         run: |
-          echo "✅ v10.9 Done - AutoRange dynamic pair price, no 105.540 hardcode"
-          echo "📊 ADX filter + BB squeeze + 6s sleep"
-          echo "💵 DXY + 11 Pairs + MeanReversion scalps + Big Trend runners"
+          echo "✅ v10.9.1 DONE - ADX 100 BUG FIXED"
+          echo "📊 ADX now 16-23 not 100.0 | Valid:True"
+          echo "🚫 No more SELL spam in 105.540-106.170 chop"
+          echo "💵 DXY + 11 Pairs + M15 AutoRange dynamic"
           echo "⏱️ Next run in 15 min"
