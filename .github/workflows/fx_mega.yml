@@ -1,52 +1,36 @@
-name: 🚀 FXMEGA v10.6 Gold + 11 Pairs
+name: FXMEGA v10.17
 
 on:
   schedule:
-    - cron: '*/15 * * * *'  # ⏱️ Every 15 minutes
-  workflow_dispatch:        # 👆 Manual run button
+    # Run every 15 minutes at :01 to allow candle close + 6s sleep
+    - cron: '1,16,31,46 * * * *'
+  workflow_dispatch:  # manual run button
 
 jobs:
-  trade:
+  run-fx:
     runs-on: ubuntu-latest
-    
-    steps:
-      - name: 📥 Checkout code
-        uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+    timeout-minutes: 5
 
-      - name: 🐍 Setup Python
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: 📦 Install dependencies
+      - name: Install deps
         run: |
+          pip install --upgrade pip
           pip install yfinance pandas requests
 
-      - name: 📂 Restore active trades
+      - name: Run FXMEGA v10.17
+        env:
+          TZ: UTC
         run: |
-          if [ -f active_trades.json ]; then
-            echo "✅ Found existing trades"
-            cat active_trades.json
-          else
-            echo "📝 No active trades yet"
-            echo '{}' > active_trades.json
-          fi
-
-      - name: 🔥 Run FXMEGA Bot v10.6
-        run: |
+          echo "Starting FXMEGA v10.17 GOLD -24 + DXY + BULLS + RED NEWS + 6s"
           python fx_mega.py
 
-      - name: 💾 Save active trades
-        run: |
-          git config --global user.name "FXMEGA Bot 🤖"
-          git config --global user.email "bot@fxmega.ug"
-          git add active_trades.json || true
-          git diff --quiet && git diff --staged --quiet || git commit -m "💰 Update trades $(date -u) 🚀"
-          git push || echo "No changes to push"
-
-      - name: ⏳ Show next run
-        run: |
-          echo "✅ v10.6 Done - Next run in 15 min ⏱️"
-          echo "💵 DXY + 11 Pairs + 6s sleep + Emojis"
+      - name: Done
+        run: echo "✅ DONE v10.17"
