@@ -1,56 +1,53 @@
-name: 🚀 FXMEGA v10.9.1 ADX FIXED Gold + 11 Pairs
+name: 🚀 FXMEGA v10.6 Gold + 11 Pairs
 
 on:
-  schedule:
-    - cron: '*/15 * * * *'  # ⏱️ Every 15 minutes M15
-  workflow_dispatch:        # 👆 Manual run button
+  schedule:
+    - cron: '*/15 * * * *'  # ⏱️ Every 15 minutes
+  workflow_dispatch:        # 👆 Manual run button
 
 jobs:
-  trade:
-    runs-on: ubuntu-latest
-    
-    steps:
-      - name: 📥 Checkout code
-        uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+  trade:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: 🐍 Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
+      - name: 🐍 Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
 
-      - name: 📦 Install dependencies v10.9.1 FIXED
-        run: |
-          pip install yfinance pandas requests numpy
-          echo "✅ numpy installed for ADX fix"
+      - name: 📦 Install dependencies
+        run: |
+          pip install yfinance pandas requests
 
-      - name: 📂 Restore active trades
-        run: |
-          if [ -f active_trades.json ]; then
-            echo "✅ Found existing trades"
-            cat active_trades.json
-          else
-            echo "📝 No active trades yet"
-            echo '{}' > active_trades.json
-          fi
+      - name: 📂 Restore active trades
+        run: |
+          if [ -f active_trades.json ]; then
+            echo "✅ Found existing trades"
+            cat active_trades.json
+          else
+            echo "📝 No active trades yet"
+            echo '{}' > active_trades.json
+          fi
 
-      - name: 🔥 Run FXMEGA Bot v10.9.1 FIXED
-        run: |
-          python fx_mega.py
+      - name: 🔥 Run FXMEGA Bot v10.6
+        run: |
+          python fx_mega.py
 
-      - name: 💾 Save active trades + BE/Trail
-        run: |
-          git config --global user.name "FXMEGA Bot 🤖"
-          git config --global user.email "bot@fxmega.ug"
-          git add active_trades.json || true
-          git diff --quiet && git diff --staged --quiet || git commit -m "💰 v10.9.1 ADX 100 bug fixed $(date -u) 📦🚀"
-          git push || echo "No changes to push"
+      - name: 💾 Save active trades
+        run: |
+          git config --global user.name "FXMEGA Bot 🤖"
+          git config --global user.email "bot@fxmega.ug"
+          git add active_trades.json || true
+          git diff --quiet && git diff --staged --quiet || git commit -m "💰 Update trades $(date -u) 🚀"
+          git push || echo "No changes to push"
 
-      - name: ⏳ Show next run v10.9.1
-        run: |
-          echo "✅ v10.9.1 DONE - ADX 100 BUG FIXED"
-          echo "📊 ADX now 16-23 not 100.0 | Valid:True"
-          echo "🚫 No more SELL spam in 105.540-106.170 chop"
-          echo "💵 DXY + 11 Pairs + M15 AutoRange dynamic"
-          echo "⏱️ Next run in 15 min"
+      - name: ⏳ Show next run
+        run: |
+          echo "✅ v10.6 Done - Next run in 15 min ⏱️"
+          echo "💵 DXY + 11 Pairs + 6s sleep + Emojis"
+
