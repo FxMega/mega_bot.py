@@ -3,12 +3,21 @@ import pandas as pd
 import requests
 from datetime import datetime, timezone
 import time, json, os
+import numpy as np
 
 NTFY_TOPIC = "gold-ai-ug-788408267"
 NTFY_URL = f"https://ntfy.sh/{NTFY_TOPIC}"
 BRAND = "FXMEGA UG"
 CONTACT = "0700848808"
 TRADE_FILE = "active_trades.json"
+
+# === v10.9 M15 FILTER SETTINGS (DYNAMIC - NO HARDCODE PRICE) ===
+ADX_MIN_TREND = 20.0       # M15 ADX <20 = ranging (your 105.54 chart ~12)
+ATR_RANGE_MULT_MIN = 0.8   # Range must be >0.8 ATR to be valid
+ATR_RANGE_MULT_MAX = 4.0   # Range must be <4 ATR (else trend)
+BB_SQUEEZE_PCT = 0.35      # BB width <0.35% = squeeze
+RANGE_LOOKBACK = 80        # 80x M15 = 20 hours
+USE_MEAN_REVERSION = True  # In ranging, buy low/sell high
 
 PAIRS = {
     "BTC-USD": "BITCOIN",
@@ -37,7 +46,6 @@ def send(msg, is_buy=True):
         else:
             title = "BE/TRAIL ALERT"
             tag = "rocket"
-        
         requests.post(NTFY_URL,
                       data=msg.encode('utf-8'),
                       headers={
@@ -96,6 +104,93 @@ def fmt_price(p):
         else: return f"{p:.2f}"
     except: return str(p)
 
+# === v10.9 NEW FUNCTIONS - AUTO DETECT RANGE FOR ANY PAIR ===
+
+def calculate_adx(df, period=14):
+    try:
+        high = df['High']; low = df['Low']; close = df['Close']
+        plus_dm = high.diff()
+        minus_dm = low.diff().abs() * -1
+        plus_dm = plus_dm.where((plus_dm > minus_dm) & (plus_dm > 0), 0.0)
+        minus_dm = minus_dm.where((minus_dm > high.diff()) & (minus_dm > 0), 0.0).abs()
+        tr = pd.concat([high-low, (high-close.shift()).abs(), (low-close.shift()).abs()], axis=1).max(axis=1)
+        atr = tr.rolling(period).mean()
+        plus_di = 100 * (plus_dm.rolling(period).mean() / atr)
+        minus_di = 100 * (minus_dm.rolling(period).mean() / atr)
+        dx = (abs(plus_di - minus_di) / (plus_di + minus_di)) * 100
+        adx = dx.rolling(period).mean()
+        return f(adx.iloc[-1])
+    except: return 25.0
+
+def calculate_bb_width(df, period=20):
+    try:
+        close = df['Close']
+        sma = close.rolling(period).mean()
+        std = close.rolling(period).std()
+        upper = sma + 2*std
+        lower = sma - 2*std
+        cur = f(close.iloc[-1])
+        width = ((f(upper.iloc[-1]) - f(lower.iloc[-1])) / cur * 100) if cur else 0
+        return width
+    except: return 1.0
+
+def get_auto_range(df):
+    """Auto-detect range for whatever pair df is - NO HARDCODE 105.540"""
+    try:
+        lookback = RANGE_LOOKBACK
+        if len(df) < lookback: lookback = len(df)-1
+        recent = df.tail(lookback)
+        atr = f(pd.concat([df['High']-df['Low'], (df['High']-df['Close'].shift()).abs(), (df['Low']-df['Close'].shift()).abs()], axis=1).max(axis=1).rolling(14).mean().iloc[-1])
+        if atr == 0: atr = f(recent['Close'].iloc[-1]) * 0.01
+        
+        raw_high = f(recent['High'].max())
+        raw_low = f(recent['Low'].min())
+        tolerance = atr * 0.3  # dynamic for any pair
+        
+        high_touches = 0
+        low_touches = 0
+        for i in range(len(recent)):
+            h = f(recent['High'].iloc[i])
+            l = f(recent['Low'].iloc[i])
+            if abs(h - raw_high) <= tolerance: high_touches += 1
+            if abs(l - raw_low) <= tolerance: low_touches += 1
+        
+        mid = (raw_high + raw_low) / 2
+        range_width = raw_high - raw_low
+        range_atr = range_width / atr if atr else 0
+        
+        is_valid = (high_touches >= 2 and low_touches >= 2 and ATR_RANGE_MULT_MIN <= range_atr <= ATR_RANGE_MULT_MAX)
+        
+        return {
+            "high": raw_high, "low": raw_low, "mid": mid,
+            "high_touches": high_touches, "low_touches": low_touches,
+            "range_atr": range_atr, "is_valid": is_valid, "atr": atr
+        }
+    except:
+        return {"high":0,"low":0,"mid":0,"high_touches":0,"low_touches":0,"range_atr":0,"is_valid":False,"atr":0}
+
+def is_ranging_market(adx, bb_width, auto_range):
+    if adx < ADX_MIN_TREND: return True
+    if bb_width < BB_SQUEEZE_PCT: return True
+    if auto_range["is_valid"] and auto_range["range_atr"] < 1.8: return True
+    return False
+
+def is_bullish_rejection(df):
+    try:
+        o = f(df['Open'].iloc[-1]); c = f(df['Close'].iloc[-1])
+        h = f(df['High'].iloc[-1]); l = f(df['Low'].iloc[-1])
+        body = abs(c - o); lower_wick = min(o,c) - l
+        return lower_wick > body * 1.5 and c > o
+    except: return False
+
+def is_bearish_rejection(df):
+    try:
+        o = f(df['Open'].iloc[-1]); c = f(df['Close'].iloc[-1])
+        h = f(df['High'].iloc[-1]); l = f(df['Low'].iloc[-1])
+        body = abs(c - o); upper_wick = h - max(o,c)
+        return upper_wick > body * 1.5 and c < o
+    except: return False
+
 def get_dxy():
     try:
         df = yf.download(DXY_SYMBOL, period="5d", interval="15m", auto_adjust=True, progress=False)
@@ -112,7 +207,7 @@ def get_dxy():
         print(f"DXY error: {e}")
         return None, None, False, False, False, False
 
-# === 1. AUTO BE + TRAILING ===
+# === 1. AUTO BE + TRAILING (SAME) ===
 active = load_trades()
 print(f"Active trades: {len(active)}")
 
@@ -174,7 +269,7 @@ for sym, name in PAIRS.items():
     except Exception as e:
         print(f"Trail {name}: {e}")
 
-# === 2. NEW SIGNALS SCAN ===
+# === 2. NEW SIGNALS SCAN v10.9 WITH AUTO RANGE ===
 blocked = get_red_news()
 dxy_cur, dxy_ema, dxy_below, dxy_above, dxy_up, dxy_down = get_dxy()
 print(f"DXY {dxy_cur} EMA {dxy_ema} Below:{dxy_below} Down:{dxy_down} Above:{dxy_above} Up:{dxy_up}")
@@ -208,15 +303,25 @@ for sym, name in PAIRS.items():
         up = ema_now > ema_prev; down = ema_now < ema_prev
         cur = f(close.iloc[-1]); hnow = f(high.iloc[-1]); lnow = f(low.iloc[-1])
 
-        # FIX ATR FOR LOW PRICE - DOGE, XRP, etc
+        # FIX ATR FOR LOW PRICE
         atr = atr_raw
         min_atr = cur * 0.005
-        if atr < min_atr:
-            atr = min_atr
-        if cur < 1.0 and atr < cur * 0.01:
-            atr = cur * 0.01
-        if atr == 0 or atr is None:
-            atr = cur * 0.01
+        if atr < min_atr: atr = min_atr
+        if cur < 1.0 and atr < cur * 0.01: atr = cur * 0.01
+        if atr == 0 or atr is None: atr = cur * 0.01
+
+        # === v10.9 AUTO RANGE + ADX FILTER (DYNAMIC PAIR PRICE) ===
+        adx_val = calculate_adx(df)
+        bb_width = calculate_bb_width(df)
+        auto_range = get_auto_range(df)
+        ranging = is_ranging_market(adx_val, bb_width, auto_range)
+
+        print(f"{name} {fmt_price(cur)} ADX:{adx_val:.1f} BB:{bb_width:.2f}% Range:{fmt_price(auto_range['low'])}-{fmt_price(auto_range['high'])} Valid:{auto_range['is_valid']} Ranging:{ranging}")
+
+        # IF RANGING, SKIP TREND SIGNALS
+        if ranging and not USE_MEAN_REVERSION:
+            print(f"{name}: RANGING detected (ADX {adx_val:.1f} < {ADX_MIN_TREND}) -> SKIP trend")
+            continue
 
         pdh = f(df_d['High'].iloc[-2]); pdl = f(df_d['Low'].iloc[-2]); crt50 = (pdh+pdl)/2
         bull_crt = lnow < pdl and cur > pdl and cur > crt50
@@ -235,51 +340,101 @@ for sym, name in PAIRS.items():
         base_buy = (bull_crt or bull_csd) and cur > ema_now and up and bulls_ok
         base_sell = (bear_crt or bear_csd) and cur < ema_now and down and bears_ok
 
-        if name == "GOLD":
-            if dxy_cur is None:
-                print("GOLD skip DXY fail")
-                continue
-            buy_signal = base_buy and dxy_below and dxy_down
-            sell_signal = base_sell and dxy_above and dxy_up
-            dxy_msg = f"💵 DXY {fmt_price(dxy_cur)} {'📉 BELOW+DOWN✅' if (dxy_below and dxy_down) else '📈 ABOVE+UP✅' if (dxy_above and dxy_up) else '❌ FAIL'}"
-        else:
-            buy_signal = base_buy
-            sell_signal = base_sell
-            dxy_msg = "✨ No DXY needed"
+        # === v10.9 LOGIC ===
+        buy_signal = False
+        sell_signal = False
+        signal_type = ""
 
-        print(f"{name} {fmt_price(cur)} EMA {fmt_price(ema_now)} {'UP' if up else 'DOWN'} Buy:{base_buy} Sell:{base_sell} ATR:{fmt_price(atr)}")
+        if not ranging:
+            # TRENDING MODE - your silver 57.305 winners
+            if name == "GOLD":
+                if dxy_cur is None:
+                    print("GOLD skip DXY fail")
+                    continue
+                buy_signal = base_buy and dxy_below and dxy_down
+                sell_signal = base_sell and dxy_above and dxy_up
+                dxy_msg = f"💵 DXY {fmt_price(dxy_cur)} {'📉 BELOW+DOWN✅' if (dxy_below and dxy_down) else '📈 ABOVE+UP✅' if (dxy_above and dxy_up) else '❌ FAIL'}"
+                signal_type = "TREND+DXY"
+            else:
+                buy_signal = base_buy
+                sell_signal = base_sell
+                dxy_msg = "✨ No DXY needed - TREND MODE"
+                signal_type = "TREND"
+        else:
+            # RANGING MODE - mean reversion using auto range of current pair
+            if auto_range["is_valid"] and USE_MEAN_REVERSION:
+                range_low = auto_range["low"]
+                range_high = auto_range["high"]
+                range_mid = auto_range["mid"]
+                edge = (range_high - range_low) * 0.25
+
+                # BUY at auto low
+                if lnow <= range_low + edge and is_bullish_rejection(df):
+                    buy_signal = True
+                    signal_type = f"RANGE BUY at auto low {fmt_price(range_low)}"
+                    dxy_msg = f"📦 RANGING M15 - ADX {adx_val:.1f} | AutoRange {fmt_price(range_low)}-{fmt_price(range_high)} -> mean reversion to mid {fmt_price(range_mid)}"
+                # SELL at auto high
+                elif hnow >= range_high - edge and is_bearish_rejection(df):
+                    sell_signal = True
+                    signal_type = f"RANGE SELL at auto high {fmt_price(range_high)}"
+                    dxy_msg = f"📦 RANGING M15 - ADX {adx_val:.1f} | AutoRange {fmt_price(range_low)}-{fmt_price(range_high)} -> mean reversion to mid {fmt_price(range_mid)}"
+            else:
+                print(f"{name}: Ranging but no valid auto range")
+                continue
+
+        print(f"{name} {fmt_price(cur)} EMA {fmt_price(ema_now)} {'UP' if up else 'DOWN'} Buy:{base_buy} Sell:{base_sell} ATR:{fmt_price(atr)} Mode:{signal_type}")
 
         if buy_signal or sell_signal:
             side = "BUY" if buy_signal else "SELL"
             emoji_side = "🟢🔥 BUY" if side == "BUY" else "🔴💥 SELL"
-            if side == "BUY":
-                sl = cur - 1.2*atr; tp1 = cur + 1.5*atr; tp2 = cur + 2.0*atr; tp3 = cur + 2.5*atr; tp4 = cur + 3.0*atr
+            
+            # TP/SL differs for trending vs ranging
+            if not ranging:
+                # TRENDING TP (like silver 57.735 etc)
+                if side == "BUY":
+                    sl = cur - 1.2*atr; tp1 = cur + 1.5*atr; tp2 = cur + 2.0*atr; tp3 = cur + 2.5*atr; tp4 = cur + 3.0*atr
+                else:
+                    sl = cur + 1.2*atr; tp1 = cur - 1.5*atr; tp2 = cur - 2.0*atr; tp3 = cur - 2.5*atr; tp4 = cur - 3.0*atr
             else:
-                sl = cur + 1.2*atr; tp1 = cur - 1.5*atr; tp2 = cur - 2.0*atr; tp3 = cur - 2.5*atr; tp4 = cur - 3.0*atr
+                # RANGING TP - only to mid, smaller
+                if side == "BUY":
+                    sl = auto_range["low"] - atr*0.5
+                    tp1 = auto_range["mid"]
+                    tp2 = auto_range["high"] - (auto_range["high"]-auto_range["mid"])*0.3
+                    tp3 = auto_range["high"]
+                    tp4 = auto_range["high"]
+                else:
+                    sl = auto_range["high"] + atr*0.5
+                    tp1 = auto_range["mid"]
+                    tp2 = auto_range["low"] + (auto_range["mid"]-auto_range["low"])*0.3
+                    tp3 = auto_range["low"]
+                    tp4 = auto_range["low"]
 
             active[name] = {"side": side, "entry": cur, "sl": sl, "tp1": tp1, "tp2": tp2, "tp3": tp3, "tp4": tp4, "stage": 0, "time": str(datetime.now(timezone.utc))}
             save_trades(active)
 
-            msg = f"""{emoji_side} {name} v10.8 {'+DXY 💵' if name == 'GOLD' else ''} ✅
+            msg = f"""{emoji_side} {name} v10.9 {signal_type} ✅
 ⭐⭐⭐ {side} SIGNAL {name} ⭐⭐⭐
 💰 ENTRY: {fmt_price(cur)}
 🔍 CRT: {'✅ YES' if (bull_crt or bear_crt) else '❌ NO'} | CSD: {'✅ YES' if (bull_csd or bear_csd) else '❌ NO'} 💪 {bp*100:.0f}%
 📊 EMA13: {fmt_price(ema_now)} {'📈 UP ✅' if up else '📉 DOWN ✅'}
 ⚡ Power: {(bulls_now if side == 'BUY' else bears_now):.4f} {'🟢' if (bulls_ok or bears_ok) else '🔴'} ✅
+📈 ADX: {adx_val:.1f} {'📦 RANGING' if ranging else '🚀 TRENDING'} | BB: {bb_width:.2f}%
+📦 AutoRange {fmt_price(auto_range['low'])} - {fmt_price(auto_range['high'])} ({auto_range['high_touches']}/{auto_range['low_touches']} touches) Valid:{auto_range['is_valid']}
 {dxy_msg}
 📏 ATR: {fmt_price(atr)}
 
-🛑 SL: {fmt_price(sl)} (1.2x ATR)
-🎯 TP1: {fmt_price(tp1)} (1.5x) -> 🔒 BE AUTO 🛡️
-🎯 TP2: {fmt_price(tp2)} (2.0x) -> 🔒 Trail TP1 📈
-🎯 TP3: {fmt_price(tp3)} (2.5x) -> 🔒 Trail TP2 💰
-🎯 TP4: {fmt_price(tp4)} (3.0x) -> 🏁 CLOSE 🎉
+🛑 SL: {fmt_price(sl)}
+🎯 TP1: {fmt_price(tp1)} {'-> BE' if not ranging else '-> MID'}
+🎯 TP2: {fmt_price(tp2)} {'-> Trail TP1' if not ranging else '-> Range High/Low'}
+🎯 TP3: {fmt_price(tp3)}
+🎯 TP4: {fmt_price(tp4)}
 
-⏱️ M15 + Auto BE/Trail + 6s ⏳
+⏱️ M15 + Auto Range (NO HARDCODE) + 6s ⏳
 {CONTACT} {BRAND} 🚀🌟💵"""
             send(msg, is_buy=buy_signal)
 
     except Exception as e:
         print(f"Scan {name}: {e}")
 
-print("✅ v10.8 FIXED - DOGE decimals + ATR + EMOJI BUG SOLVED 🎉🚀💰")
+print("✅ v10.9 M15 AUTO RANGE - DYNAMIC PAIR PRICE, NO 105.540 HARDCODE 🎉🚀💰")
