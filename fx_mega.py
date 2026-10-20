@@ -1,158 +1,343 @@
-import yfinance as yf, pandas as pd, requests, json, os, time
+import yfinance as yf
+import pandas as pd
+import requests
 from datetime import datetime, timezone
+import time
+import json
+import os
+
 NTFY_TOPIC = "gold-ai-ug-788408267"
 NTFY_URL = f"https://ntfy.sh/{NTFY_TOPIC}"
 BRAND = "FXMEGA UG"
-CONTACT = "0700848808"
-GOLD_OFF = 21.43
-SILVER_OFF = 0.12
-DXY_SYM = "DX-Y.NYB"
+CONTACT = "📞 0700848808"
+TRADE_FILE = "active_trades.json"
+
 PAIRS = {
-    "GOLD": ["GC=F"],
-    "SILVER": ["SI=F"],
-    "BITCOIN": ["BTC-USD"],
-    "ETHEREUM": ["ETH-USD"],
-    "SOLANA": ["SOL-USD"],
-    "BNB": ["BNB-USD"],
-    "XRP": ["XRP-USD"],
-    "DOGECOIN": ["DOGE-USD"],
-    "EURUSD": ["EURUSD=X"],
-    "GBPUSD": ["GBPUSD=X"],
-    "USDJPY": ["USDJPY=X"]
+    "BTC-USD": "BITCOIN",
+    "ETH-USD": "ETHEREUM",
+    "SOL-USD": "SOLANA",
+    "BNB-USD": "BNB",
+    "XRP-USD": "XRP",
+    "DOGE-USD": "DOGECOIN",
+    "GC=F": "GOLD",
+    "SI=F": "SILVER",
+    "EURUSD=X": "EURUSD",
+    "GBPUSD=X": "GBPUSD",
+    "USDJPY=X": "USDJPY"
 }
-def get_red_news():
-    blocked=set()
+
+DXY_SYMBOL = "DX-Y.NYB"
+
+def send(msg, is_buy=True):
     try:
-        r=requests.get("https://nfs.faireconomy.media/ff_calendar_thisweek.json",timeout=15).json()
-        now=datetime.now(timezone.utc)
-        for ev in r:
-            if ev.get("impact")!="High": continue
-            try: et=datetime.fromisoformat(ev.get("date").replace("Z","+00:00"))
-            except: continue
-            diff=(et-now).total_seconds()/60
-            if -60 <= diff <= 60:
-                c=ev.get("country","").strip()
-                if c:
-                    print(f"🔴 RED NEWS FOUND: {c} {ev.get('title','')} at {et} diff {diff:.0f}min -> BLOCK ALL")
-                    blocked.add(c)
-        if not blocked: print("✅ NO RED NEWS - All pairs allowed")
-        else: print(f"⛔ BLOCKED COUNTRIES: {blocked} - SKIP ALL 60min")
-    except Exception as e: print(f"News err {e}")
-    return blocked
-def get_df(name):
-    for sym in PAIRS[name]:
+        if "BUY" in msg and "SIGNAL" in msg:
+            title = "BUY SIGNAL"
+            tag = "moneybag"
+        elif "SELL" in msg and "SIGNAL" in msg:
+            title = "SELL SIGNAL"
+            tag = "money_with_wings"
+        else:
+            title = "BE/TRAIL ALERT"
+            tag = "rocket"
+
+        requests.post(
+            NTFY_URL,
+            data=msg.encode('utf-8'),
+            headers={
+                "Title": f"{title} - {BRAND}",
+                "Priority": "high",
+                "Tags": tag,
+                "Content-Type": "text/plain; charset=utf-8"
+            },
+            timeout=10
+        )
+        print(f"SENT: {msg[:100]}")
+        time.sleep(6)
+    except Exception as e:
+        print(f"Send error: {e}")
+        time.sleep(6)
+
+def load_trades():
+    if os.path.exists(TRADE_FILE):
         try:
-            df=yf.download(sym, period="5d", interval="15m", auto_adjust=True, progress=False)
-            if df is not None and not df.empty and len(df)>30:
-                if isinstance(df.columns, pd.MultiIndex): df.columns=df.columns.get_level_values(0)
-                return df, sym
-        except: continue
-    return pd.DataFrame(), None
+            with open(TRADE_FILE, 'r') as f:
+                return json.load(f)
+        except:
+            return {}
+    return {}
+
+def save_trades(tr):
+    with open(TRADE_FILE, 'w') as f:
+        json.dump(tr, f, indent=2)
+
+def is_weekend():
+    return datetime.now(timezone.utc).weekday() >= 5
+
+def get_red_news():
+    blocked = set()
+    try:
+        r = requests.get(
+            "https://nfs.faireconomy.media/ff_calendar_thisweek.json",
+            timeout=10
+        ).json()
+        now = datetime.now(timezone.utc)
+        for ev in r:
+            if ev.get("impact") != "High":
+                continue
+            try:
+                et = datetime.fromisoformat(ev.get("date").replace("Z", "+00:00"))
+            except:
+                continue
+            if -30 <= (et - now).total_seconds() / 60 <= 60:
+                c = ev.get("country", "").strip()
+                if c:
+                    blocked.add(c)
+    except:
+        pass
+    return blocked
+
+def f(x):
+    try:
+        if hasattr(x, 'iloc'):
+            return float(x.iloc[0])
+        return float(x)
+    except:
+        return float(x)
+
 def get_dxy():
     try:
-        df=yf.download(DXY_SYM, period="5d", interval="15m", auto_adjust=True, progress=False)
-        if df is None or df.empty:
-            df=yf.download("DX=F", period="5d", interval="15m", auto_adjust=True, progress=False)
-        if isinstance(df.columns, pd.MultiIndex): df.columns=df.columns.get_level_values(0)
-        close=df['Close']; ema=close.ewm(span=13).mean()
-        cur=float(close.iloc[-1]); ema_now=float(ema.iloc[-1]); ema_prev=float(ema.iloc[-2])
-        below=cur<ema_now; above=cur>ema_now; down=ema_now<ema_prev; up=ema_now>ema_prev
-        print(f"💵 DXY {cur:.2f} EMA {ema_now:.2f} BELOW={below} ABOVE={above} DOWN={down} UP={up}")
-        print(f"   DXY BUY FILTER (GOLD BUY): BELOW={below}+DOWN={down}={below and down}")
-        print(f"   DXY SELL FILTER (GOLD SELL): ABOVE={above}+UP={up}={above and up}")
-        return cur, ema_now, below, above, down, up
-    except: return None,None,False,False,False,False
-def send(m, is_buy=True):
+        df = yf.download(DXY_SYMBOL, period="5d", interval="15m", auto_adjust=True, progress=False)
+        if df.empty:
+            df = yf.download("DX=F", period="5d", interval="15m", auto_adjust=True, progress=False)
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+        close = df['Close']
+        ema = close.ewm(span=13).mean()
+        ema_now = f(ema.iloc[-1])
+        cur = f(close.iloc[-1])
+        return cur, ema_now, cur < ema_now, cur > ema_now, ema_now > f(ema.iloc[-2]), ema_now < f(ema.iloc[-2])
+    except Exception as e:
+        print(f"DXY error: {e}")
+        return None, None, False, False, False, False
+
+# === 1. AUTO BE + TRAILING ===
+active = load_trades()
+print(f"Active trades: {len(active)}")
+
+for sym, name in PAIRS.items():
+    if name not in active:
+        continue
+    if "USD=X" in sym and is_weekend():
+        continue
     try:
-        title = "BUY SIGNAL" if is_buy else "SELL SIGNAL"
-        tag = "moneybag" if is_buy else "money_with_wings"
-        requests.post(NTFY_URL, data=m.encode('utf-8'),
-            headers={"Title": f"{title} - {BRAND}","Priority":"high","Tags":tag,"Content-Type":"text/plain; charset=utf-8"}, timeout=10)
-        time.sleep(6)
-    except: pass
-def ff(x):
+        df = yf.download(sym, period="1d", interval="15m", auto_adjust=True, progress=False)
+        if df.empty:
+            continue
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+        cur = f(df['Close'].iloc[-1])
+        t = active[name]
+        side = t['side']
+        entry = t['entry']
+        stage = t.get('stage', 0)
+        tp1 = t['tp1']
+        tp2 = t['tp2']
+        tp3 = t['tp3']
+        tp4 = t['tp4']
+
+        hit_tp1 = (cur >= tp1) if side == "BUY" else (cur <= tp1)
+        hit_tp2 = (cur >= tp2) if side == "BUY" else (cur <= tp2)
+        hit_tp3 = (cur >= tp3) if side == "BUY" else (cur <= tp3)
+        hit_tp4 = (cur >= tp4) if side == "BUY" else (cur <= tp4)
+
+        if hit_tp4:
+            send(f"""🏁🎉 {name} TP4 HIT - CLOSE ALL! 💰💰💰
+{'🟢' if side == 'BUY' else '🔴'} {side} {name}
+💵 TP4 {tp4:.2f} HIT at {cur:.2f}
+💸 Profit: +{abs(cur-entry):.2f} 🚀
+✅ Close remaining 25%
+{CONTACT} {BRAND} 🌟""", is_buy=side == "BUY")
+            del active[name]
+            save_trades(active)
+            continue
+
+        if hit_tp3 and stage < 3:
+            send(f"""🔒➡️ {name} TRAIL TO TP2 📈
+{'🟢' if side == 'BUY' else '🔴'} {side} {name}
+🎯 TP3 {tp3:.2f} HIT!
+🔄 Move SL {t['sl']:.2f} ➡️ {tp2:.2f}
+💰 Lock profit: +{abs(tp2-entry):.2f} 💵
+{CONTACT} {BRAND}""", is_buy=side == "BUY")
+            t['sl'] = tp2
+            t['stage'] = 3
+            active[name] = t
+            save_trades(active)
+            continue
+
+        if hit_tp2 and stage < 2:
+            send(f"""🔒➡️ {name} TRAIL TO TP1 📈🔥
+{'🟢' if side == 'BUY' else '🔴'} {side} {name}
+🎯 TP2 {tp2:.2f} HIT at {cur:.2f}
+🔄 SL -> {tp1:.2f} (TP1)
+💰 Locked: +{abs(tp1-entry):.2f} 💵💵
+{CONTACT} {BRAND}""", is_buy=side == "BUY")
+            t['sl'] = tp1
+            t['stage'] = 2
+            active[name] = t
+            save_trades(active)
+            continue
+
+        if hit_tp1 and stage < 1:
+            send(f"""🔒✨ {name} AUTO BE TRIGGERED 🛡️
+{'🟢' if side == 'BUY' else '🔴'} {side} {name}
+🎯 TP1 {tp1:.2f} HIT at {cur:.2f} ✅✅
+👉 ACTION: MOVE SL TO BE {entry:.2f}
+😎 Risk free now! No loss 💪
+{CONTACT} {BRAND} 🚀""", is_buy=side == "BUY")
+            t['sl'] = entry
+            t['stage'] = 1
+            active[name] = t
+            save_trades(active)
+            continue
+
+    except Exception as e:
+        print(f"Trail {name}: {e}")
+
+# === 2. NEW SIGNALS SCAN ===
+blocked = get_red_news()
+dxy_cur, dxy_ema, dxy_below, dxy_above, dxy_up, dxy_down = get_dxy()
+print(f"DXY {dxy_cur} EMA {dxy_ema} Below:{dxy_below} Down:{dxy_down} Above:{dxy_above} Up:{dxy_up}")
+print(f"Blocked news: {blocked}")
+
+for sym, name in PAIRS.items():
+    if name in active:
+        print(f"{name}: in trade skip")
+        continue
+    if "USD=X" in sym and is_weekend():
+        print(f"{name}: weekend closed")
+        continue
+
+    curr = "EUR" if "EUR" in name else "GBP" if "GBP" in name else "JPY" if "JPY" in name else "USD"
+    if curr in blocked or ("USD" in blocked and name in ["GOLD", "SILVER", "BITCOIN", "ETHEREUM", "BNB"]):
+        print(f"{name}: news blocked")
+        continue
+
     try:
-        if hasattr(x,'iloc'): return float(x.iloc[0])
-        return float(x)
-    except: return float(x)
-def fmt(p):
-    p=float(p)
-    if p<0.01: return f"{p:.6f}"
-    elif p<1: return f"{p:.5f}"
-    elif p<10: return f"{p:.4f}"
-    elif p<100: return f"{p:.3f}"
-    else: return f"{p:.2f}"
-blocked=get_red_news()
-dxy_cur,dxy_ema,dxy_below,dxy_above,dxy_down,dxy_up=get_dxy()
-if blocked:
-    print("⛔ ALL BLOCKED BY RED NEWS 60min")
-else:
-    for name in PAIRS.keys():
-        df,sym=get_df(name)
-        if df.empty: print(f"{name} NO DATA"); continue
-        close=df['Close']; high=df['High']; low=df['Low']; op=df['Open']
-        # LIVE = ENTRY FIX FOR ALL PAIRS
-        cur=ff(close.iloc[-1]); live=ff(close.iloc[-1])
-        hnow=ff(high.iloc[-1]); lnow=ff(low.iloc[-1]); o=ff(op.iloc[-1])
-        hp=ff(high.iloc[-2]); lp=ff(low.iloc[-2])
-        off=GOLD_OFF if name=="GOLD" else SILVER_OFF if name=="SILVER" else 0
-        if off>0: cur-=off; live-=off; hnow-=off; lnow-=off; o-=off; hp-=off; lp-=off
-        pdh=ff(high.iloc[-97:-1].max()); pdl=ff(low.iloc[-97:-1].min())
-        if off>0: pdh-=off; pdl-=off
-        mid=(pdh+pdl)/2
-        tr=pd.concat([high-low,(high-close.shift()).abs(),(low-close.shift()).abs()],axis=1).max(axis=1)
-        atr=ff(tr.rolling(14).mean().iloc[-1])
-        if atr<cur*0.005: atr=cur*0.005
-        ema=close.ewm(span=13).mean()
-        ema_now=ff(ema.iloc[-1]); ema_prev=ff(ema.iloc[-2])
-        if off>0: ema_now-=off; ema_prev-=off
-        up=ema_now>ema_prev; down=ema_now<ema_prev
-        bull_crt=lnow<pdl and cur>pdl and cur>mid
-        bear_crt=hnow>pdh and cur<pdh and cur<mid
-        body=abs(cur-o); rng=hnow-lnow; bp=body/rng if rng>0 else 0
-        bull_csd=cur>o and bp>0.6 and cur>hp
-        bear_csd=cur<o and bp>0.6 and cur<lp
-        bulls_now=hnow-ema_now; bulls_prev=hp-ema_prev
-        bears_now=lnow-ema_now; bears_prev=lp-ema_prev
-        bulls_red_to_green=bulls_prev<0 and bulls_now>0
-        bulls_green=bulls_now>0
-        bears_green_to_red=bears_prev>0 and bears_now<0
-        bears_red=bears_now<0
-        bulls_ok=bulls_red_to_green or bulls_green
-        bears_ok=bears_green_to_red or bears_red
-        print(f"{name} BullsPower {bulls_now:.2f} PREV {bulls_prev:.2f} -> {'🟢 RED->GREEN' if bulls_red_to_green else '🟢 ALREADY GREEN' if bulls_green else '🔴 STILL RED'} OK={bulls_ok}")
-        print(f"{name} BearsPower {bears_now:.2f} PREV {bears_prev:.2f} -> {'🔴 GREEN->RED' if bears_green_to_red else '🔴 ALREADY RED' if bears_red else '🟢 STILL GREEN'} OK={bears_ok}")
-        base_buy=(bull_crt or bull_csd) and cur>ema_now and up and bulls_ok
-        base_sell=(bear_crt or bear_csd) and cur<ema_now and down and bears_ok
-        if name=="GOLD":
-            if dxy_cur is None: continue
-            buy_final=base_buy and dxy_below and dxy_down
-            sell_final=base_sell and dxy_above and dxy_up
+        df = yf.download(sym, period="5d", interval="15m", auto_adjust=True, progress=False)
+        df_d = yf.download(sym, period="10d", interval="1d", auto_adjust=True, progress=False)
+        if df.empty or len(df) < 100:
+            continue
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+        if isinstance(df_d.columns, pd.MultiIndex):
+            df_d.columns = df_d.columns.get_level_values(0)
+
+        close = df['Close']
+        high = df['High']
+        low = df['Low']
+        open_ = df['Open']
+
+        tr = pd.concat([
+            high - low,
+            (high - close.shift()).abs(),
+            (low - close.shift()).abs()
+        ], axis=1).max(axis=1)
+        atr = f(tr.rolling(14).mean().iloc[-1])
+
+        ema13 = close.ewm(span=13).mean()
+        ema_now = f(ema13.iloc[-1])
+        ema_prev = f(ema13.iloc[-2])
+        up = ema_now > ema_prev
+        down = ema_now < ema_prev
+        cur = f(close.iloc[-1])
+        hnow = f(high.iloc[-1])
+        lnow = f(low.iloc[-1])
+
+        pdh = f(df_d['High'].iloc[-2])
+        pdl = f(df_d['Low'].iloc[-2])
+        crt50 = (pdh + pdl) / 2
+        bull_crt = lnow < pdl and cur > pdl and cur > crt50
+        bear_crt = hnow > pdh and cur < pdh and cur < crt50
+
+        body = abs(cur - f(open_.iloc[-1]))
+        rng = hnow - lnow
+        bp = body / rng if rng > 0 else 0
+        bull_csd = cur > f(open_.iloc[-1]) and bp > 0.6 and cur > f(high.iloc[-2])
+        bear_csd = cur < f(open_.iloc[-1]) and bp > 0.6 and cur < f(low.iloc[-2])
+
+        bulls_now = hnow - ema_now
+        bulls_prev = f(high.iloc[-2]) - ema_prev
+        bears_now = lnow - ema_now
+        bears_prev = f(low.iloc[-2]) - ema_prev
+        bulls_ok = (bulls_prev < 0 and bulls_now > 0) or bulls_now > 0
+        bears_ok = (bears_prev > 0 and bears_now < 0) or bears_now < 0
+
+        base_buy = (bull_crt or bull_csd) and cur > ema_now and up and bulls_ok
+        base_sell = (bear_crt or bear_csd) and cur < ema_now and down and bears_ok
+
+        if name == "GOLD":
+            if dxy_cur is None:
+                print("GOLD skip DXY fail")
+                continue
+            buy_signal = base_buy and dxy_below and dxy_down
+            sell_signal = base_sell and dxy_above and dxy_up
+            dxy_msg = f"💵 DXY {dxy_cur:.2f} {'📉 BELOW+DOWN✅' if (dxy_below and dxy_down) else '📈 ABOVE+UP✅' if (dxy_above and dxy_up) else '❌ FAIL'}"
         else:
-            buy_final=base_buy; sell_final=base_sell
-        print(f"{name} ENTRY {fmt(cur)} LIVE {fmt(live)} SPOT -{off} BUY:{buy_final} SELL:{sell_final}")
-        if buy_final or sell_final:
-            side="BUY" if buy_final else "SELL"
-            entry=cur
-            if side=="BUY":
-                sl=entry-1.5*atr; tp1=entry+1.0*atr; tp2=entry+2.0*atr; tp3=entry+3.0*atr; tp4=entry+4.0*atr
+            buy_signal = base_buy
+            sell_signal = base_sell
+            dxy_msg = "✨ No DXY needed"
+
+        print(f"{name} {cur:.2f} EMA {ema_now:.2f} {'UP' if up else 'DOWN'} Buy:{base_buy} Sell:{base_sell}")
+
+        if buy_signal or sell_signal:
+            side = "BUY" if buy_signal else "SELL"
+            emoji_side = "🟢🔥 BUY" if side == "BUY" else "🔴💥 SELL"
+            if side == "BUY":
+                sl = cur - 1.2 * atr
+                tp1 = cur + 1.5 * atr
+                tp2 = cur + 2.0 * atr
+                tp3 = cur + 2.5 * atr
+                tp4 = cur + 3.0 * atr
             else:
-                sl=entry+1.5*atr; tp1=entry-1.0*atr; tp2=entry-2.0*atr; tp3=entry-3.0*atr; tp4=entry-4.0*atr
-            dxy_txt = f"DXY {fmt(dxy_cur)} {'BELOW+DOWN ✅' if dxy_below and dxy_down else 'ABOVE+UP ✅' if dxy_above and dxy_up else ''}"
-            bulls_txt = f"{'🟢 RED->GREEN' if bulls_red_to_green else '🟢 GREEN ✅'} BullsPower" if side=="BUY" else f"{'🔴 GREEN->RED' if bears_green_to_red else '🔴 RED ✅'} BearsPower"
-            msg=f"""{'🟢🔥 BUY' if side=='BUY' else '🔴💥 SELL'} {name} v10.21 LIVE + ATR ✅ ({sym} {'-%.2f spot' % off if off>0 else ''})
+                sl = cur + 1.2 * atr
+                tp1 = cur - 1.5 * atr
+                tp2 = cur - 2.0 * atr
+                tp3 = cur - 2.5 * atr
+                tp4 = cur - 3.0 * atr
+
+            active[name] = {
+                "side": side,
+                "entry": cur,
+                "sl": sl,
+                "tp1": tp1,
+                "tp2": tp2,
+                "tp3": tp3,
+                "tp4": tp4,
+                "stage": 0,
+                "time": str(datetime.now(timezone.utc))
+            }
+            save_trades(active)
+
+            msg = f"""{emoji_side} {name} v10.7 {'+DXY 💵' if name == 'GOLD' else ''} ✅
 ⭐⭐⭐ {side} SIGNAL {name} ⭐⭐⭐
-💰 ENTRY: {fmt(entry)} LIVE: {fmt(live)} (MT5 MATCH {fmt(entry)} = GC=F -{off})
+💰 ENTRY: {cur:.2f}
 🔍 CRT: {'✅ YES' if (bull_crt or bear_crt) else '❌ NO'} | CSD: {'✅ YES' if (bull_csd or bear_csd) else '❌ NO'} 💪 {bp*100:.0f}%
-📊 EMA13: {fmt(ema_now)} {'📈 UP' if up else '📉 DOWN'} | {bulls_txt}
-💵 {dxy_txt if name=='GOLD' else 'No DXY needed'}
-📏 ATR: {fmt(atr)} (1.5x SL, 1x/2x/3x/4x TP)
-🛑 SL: {fmt(sl)} (1.5x ATR)
-🎯 TP1: {fmt(tp1)} -> BE 🔒 (1x ATR)
-🎯 TP2: {fmt(tp2)} -> Trail TP1 (2x ATR)
-🎯 TP3: {fmt(tp3)} -> Trail TP2 (3x ATR)
-🎯 TP4: {fmt(tp4)} -> CLOSE 🏁 (4x ATR)
-⏱️ M15 LIVE ENTRY + SPOT {fmt(live)} + 6s
-{CONTACT} {BRAND} 🚀"""
-            send(msg, is_buy=buy_final)
-print("✅ DONE v10.21 LIVE ENTRY + GOLD -21.43 + SILVER -0.12 + ATR SL/TP/BE + DXY + BULLS + RED NEWS")
+📊 EMA13: {ema_now:.2f} {'📈 UP ✅' if up else '📉 DOWN ✅'}
+⚡ Power: {(bulls_now if side == 'BUY' else bears_now):.2f} {'🟢' if (bulls_ok or bears_ok) else '🔴'} ✅
+{dxy_msg}
+📏 ATR: {atr:.2f}
+
+🛑 SL: {sl:.2f} (1.2x ATR)
+🎯 TP1: {tp1:.2f} (1.5x) -> 🔒 BE AUTO 🛡️
+🎯 TP2: {tp2:.2f} (2.0x) -> 🔒 Trail TP1 📈
+🎯 TP3: {tp3:.2f} (2.5x) -> 🔒 Trail TP2 💰
+🎯 TP4: {tp4:.2f} (3.0x) -> 🏁 CLOSE 🎉
+
+⏱️ M15 + Auto BE/Trail + 6s ⏳
+{CONTACT} {BRAND} 🚀🌟💵"""
+            send(msg, is_buy=buy_signal)
+
+    except Exception as e:
+        print(f"Scan {name}: {e}")
+
+print("✅ v10.7 FIXED - EMOJI BUG SOLVED + 6s DONE 🎉🚀💰")
