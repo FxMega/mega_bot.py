@@ -16,7 +16,7 @@ PAIRS = {
     "BTC-USD": "BITCOIN", "ETH-USD": "ETHEREUM", "SOL-USD": "SOLANA",
     "BNB-USD": "BNB", "XRP-USD": "XRP", "DOGE-USD": "DOGECOIN",
     "ADA-USD": "CARDANO", "AVAX-USD": "AVALANCHE", "LINK-USD": "CHAINLINK",
-    "LTC-USD": "LITECOIN", "DOT-USD": "POLKADOT", "POL-USD": "POLYGON",
+    "LTC-USD": "LITECOIN", "DOT-USD": "POLKADOT", "MATIC-USD": "POLYGON",
     "GC=F": "GOLD", "SI=F": "SILVER",
     "EURUSD=X": "EURUSD", "GBPUSD=X": "GBPUSD", "USDJPY=X": "USDJPY",
     "USDCHF=X": "USDCHF", "AUDUSD=X": "AUDUSD", "USDCAD=X": "USDCAD",
@@ -28,16 +28,20 @@ BINANCE_MAP = {
     "BTC-USD": "BTCUSDT", "ETH-USD": "ETHUSDT", "SOL-USD": "SOLUSDT",
     "BNB-USD": "BNBUSDT", "XRP-USD": "XRPUSDT", "DOGE-USD": "DOGEUSDT",
     "ADA-USD": "ADAUSDT", "AVAX-USD": "AVAXUSDT", "LINK-USD": "LINKUSDT",
-    "LTC-USD": "LTCUSDT", "DOT-USD": "DOTUSDT", "POL-USD": "POLUSDT"
+    "LTC-USD": "LTCUSDT", "DOT-USD": "DOTUSDT", "MATIC-USD": "MATICUSDT"
 }
 
 def send(msg, title="FXMEGA UG"):
     try:
+        safe_title = title.encode('ascii', 'ignore').decode('ascii')
+        if not safe_title.strip():
+            safe_title = "FXMEGA UG Signal"
         requests.post(NTFY_URL, data=msg.encode('utf-8'),
-            headers={"Title": title, "Priority": "high", "Tags": "chart", "Content-Type": "text/plain; charset=utf-8"}, timeout=10)
-        print(f"✅ SENT: {title}")
-        time.sleep(5)
-    except Exception as e: print(f"❌ Send error: {e}")
+            headers={"Title": safe_title, "Priority": "high", "Tags": "chart,rocket"}, timeout=10)
+        print(f"✅ SENT: {safe_title}")
+        time.sleep(2)
+    except Exception as e:
+        print(f"❌ Send error: {e}")
 
 def load_trades():
     if os.path.exists(TRADE_FILE):
@@ -192,7 +196,6 @@ def was_recent_signal(pair_name, hours=2):
         except: continue
     return False
 
-# TRAILING & SCAN
 active=load_trades()
 print(f"🔵 Active: {len(active)} | 🚀 v11.7 FIXED LTC PUMP - BLOCK RSI<35 SELL")
 
@@ -215,16 +218,16 @@ for sym,name in PAIRS.items():
         hit_tp3=(cur>=tp3) if side=="BUY" else (cur<=tp3)
         hit_tp4=(cur>=tp4) if side=="BUY" else (cur<=tp4)
         if hit_tp4:
-            send(f"🏁 {name} TP4 HIT CLOSE!", f"TP4 HIT - {name}")
+            send(f"🏁 {name} TP4 HIT CLOSE! 🎉", f"TP4 HIT - {name}")
             del active[name]; save_trades(active); continue
         if hit_tp3 and stage<3:
-            send(f"🔒 {name} TRAIL TO TP2", f"TRAIL TP2 - {name}")
+            send(f"🔒 {name} TRAIL TO TP2 🔥", f"TRAIL TP2 - {name}")
             t['sl']=tp2; t['stage']=3; active[name]=t; save_trades(active); continue
         if hit_tp2 and stage<2:
-            send(f"🔒 {name} TRAIL TO TP1", f"TRAIL TP1 - {name}")
+            send(f"🔒 {name} TRAIL TO TP1 🔥", f"TRAIL TP1 - {name}")
             t['sl']=tp1; t['stage']=2; active[name]=t; save_trades(active); continue
         if hit_tp1 and stage<1:
-            send(f"🔒 {name} AUTO BE", f"AUTO BE - {name}")
+            send(f"🔒 {name} AUTO BE ✅", f"AUTO BE - {name}")
             t['sl']=entry; t['stage']=1; active[name]=t; save_trades(active); continue
     except Exception as e: print(f"Trail {name}: {e}")
 
@@ -244,7 +247,9 @@ for sym,name in PAIRS.items():
     try:
         df=yf.download(sym, period="5d", interval="15m", auto_adjust=True, progress=False)
         df_d=yf.download(sym, period="10d", interval="1d", auto_adjust=True, progress=False)
-        if df.empty or len(df)<100: continue
+        if df.empty or len(df)<100:
+            print(f"SKIP {name} no data {sym}")
+            continue
         if isinstance(df.columns, pd.MultiIndex): df.columns=df.columns.get_level_values(0)
         if isinstance(df_d.columns, pd.MultiIndex): df_d.columns=df_d.columns.get_level_values(0)
         close,high,low,open_=df['Close'],df['High'],df['Low'],df['Open']
@@ -281,8 +286,7 @@ for sym,name in PAIRS.items():
         base_buy = base_buy and rsi_bull
         base_sell = base_sell and rsi_bear
 
-        # ================= v11.7 FIX FOR LTC CASE - CORRECTLY INDENTED =================
-        # 1️⃣ RSI Exhaustion filter - BLOCKS YOUR LTC RSI 20.0 SELL THAT PUMPED TO 60.71
+        # ================= v11.7 FIX FOR LTC CASE =================
         if base_sell and rsi_now < 35:
             print(f"❌ BLOCK SELL {name} - RSI {rsi_now:.1f} OVERSOLD 🚫 - would pump like LTC 58->60.71")
             base_sell = False
@@ -290,14 +294,12 @@ for sym,name in PAIRS.items():
             print(f"❌ BLOCK BUY {name} - RSI {rsi_now:.1f} OVERBOUGHT 🚫")
             base_buy = False
 
-        # 2️⃣ Require OB for crypto - fixes "No fresh OB" fake signal
         has_any_ob = ob_found_buy or ob_found_sell
         if name in ["LITECOIN","BITCOIN","ETHEREUM","DOGECOIN","XRP","CHAINLINK","SOLANA","BNB","CARDANO","AVALANCHE","POLKADOT","POLYGON"] and not has_any_ob:
             if rsi_now < 40 or rsi_now > 60:
                 print(f"❌ BLOCK {name} - No fresh OB + RSI {rsi_now:.1f} = No institutional level ⛔")
                 base_sell = False
                 base_buy = False
-        # ================= END v11.7 FIX =================
 
         if base_buy and htf==-1:
             print(f"⛔ HTF BLOCK BUY {name} H1 DOWN"); continue
@@ -332,8 +334,8 @@ for sym,name in PAIRS.items():
 ⭐⭐⭐ {side} SIGNAL {name} ⭐⭐⭐
 💰 ENTRY ZONE: {fmt_price(zone_low,cur)} - {fmt_price(zone_high,cur)}
 👉 NOW {fmt_price(cur,cur)} is BEST (discount) | Valid 30m
-📊 RSI: {rsi_now:.1f} {'↑ MOMENTUM' if side=='BUY' else '↓ MOMENTUM'} | {ob_info}
-📈 H1 Trend: {'UP' if htf==1 else 'DOWN' if htf==-1 else 'NEUTRAL'} | H1 Filter ON
+📊 RSI: {rsi_now:.1f} {'📈 MOMENTUM UP' if side=='BUY' else '📉 MOMENTUM DOWN'} | {ob_info}
+📈 H1 Trend: {'📈 UP' if htf==1 else '📉 DOWN' if htf==-1 else '➡️ NEUTRAL'} | H1 Filter ON
 📏 ATR: {fmt_price(atr,cur)} | 🛑 SL: {fmt_price(sl,cur)} ({sl_mult}x) | 🎯 TP1: {fmt_price(tp1,cur)} | TP2: {fmt_price(tp2,cur)} | TP3: {fmt_price(tp3,cur)} | TP4: {fmt_price(tp4,cur)}
 🔍 {source} | BE at TP1 | Trail TP2/TP3 | 2h Cooldown
 {CONTACT} {BRAND} 🚀 v11.7 LTC FIX"""
@@ -341,4 +343,4 @@ for sym,name in PAIRS.items():
             signals_sent_this_run+=1
     except Exception as e: print(f"⚠️ Scan {name}: {e}")
 
-print(f"✅ v11.7 DONE - {signals_sent_this_run} signals - FIXED LTC RSI 20 BLOCK")
+print(f"✅ v11.7 DONE - {signals_sent_this_run} signals - FIXED LTC RSI 20 BLOCK - EMOJIS OK")
