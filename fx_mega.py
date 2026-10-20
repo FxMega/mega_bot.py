@@ -13,16 +13,13 @@ CONTACT = "📞 0700848808"
 TRADE_FILE = "active_trades.json"
 HISTORY_FILE = "signals_history.json"
 
-# EXPANDED PAIRS v11.3
+# FIXED PAIRS v11.4 - MATIC -> POL
 PAIRS = {
-    # CRYPTO 12 pairs
     "BTC-USD": "BITCOIN", "ETH-USD": "ETHEREUM", "SOL-USD": "SOLANA",
     "BNB-USD": "BNB", "XRP-USD": "XRP", "DOGE-USD": "DOGECOIN",
     "ADA-USD": "CARDANO", "AVAX-USD": "AVALANCHE", "LINK-USD": "CHAINLINK",
-    "LTC-USD": "LITECOIN", "DOT-USD": "POLKADOT", "MATIC-USD": "POLYGON",
-    # METALS
+    "LTC-USD": "LITECOIN", "DOT-USD": "POLKADOT", "POL-USD": "POLYGON",
     "GC=F": "GOLD", "SI=F": "SILVER",
-    # FOREX 10 pairs
     "EURUSD=X": "EURUSD", "GBPUSD=X": "GBPUSD", "USDJPY=X": "USDJPY",
     "USDCHF=X": "USDCHF", "AUDUSD=X": "AUDUSD", "USDCAD=X": "USDCAD",
     "NZDUSD=X": "NZDUSD", "EURJPY=X": "EURJPY", "GBPJPY=X": "GBPJPY",
@@ -34,7 +31,7 @@ BINANCE_MAP = {
     "BTC-USD": "BTCUSDT", "ETH-USD": "ETHUSDT", "SOL-USD": "SOLUSDT",
     "BNB-USD": "BNBUSDT", "XRP-USD": "XRPUSDT", "DOGE-USD": "DOGEUSDT",
     "ADA-USD": "ADAUSDT", "AVAX-USD": "AVAXUSDT", "LINK-USD": "LINKUSDT",
-    "LTC-USD": "LTCUSDT", "DOT-USD": "DOTUSDT", "MATIC-USD": "MATICUSDT"
+    "LTC-USD": "LTCUSDT", "DOT-USD": "DOTUSDT", "POL-USD": "POLUSDT"
 }
 
 def send(msg, title="FXMEGA UG"):
@@ -86,24 +83,19 @@ def get_forex_live_yahoo(sym, fallback):
     return None
 
 def get_live_price(sym, fallback):
-    # 1. CRYPTO BINANCE 0.1 sec
     if sym in BINANCE_MAP:
         try:
             r = requests.get(f"https://api.binance.com/api/v3/ticker/price?symbol={BINANCE_MAP[sym]}", timeout=3).json()
             price = float(r['price'])
-            if price > 0 and abs(price - fallback)/fallback < 0.06:
-                return price
-            return price # trust binance more
+            if price > 0: return price
         except: pass
-    # 2. GOLD SILVER GOLD-API 0.5 sec
     if sym in ["GC=F", "SI=F"]:
         try:
             metal = "XAU" if sym == "GC=F" else "XAG"
             r = requests.get(f"https://api.gold-api.com/price/{metal}", timeout=4).json()
             price = float(r['price'])
             if metal == "XAU": price *= 1.003
-            if price > 0:
-                return price
+            if price > 0: return price
         except: pass
         try:
             r2 = requests.get("https://data-asg.goldprice.org/dbXRates/USD", timeout=4).json()
@@ -112,15 +104,12 @@ def get_live_price(sym, fallback):
                 if sym == "GC=F": price *= 1.003
                 return price
         except: pass
-    # 3. FOREX YAHOO CHART 1 sec - FASTEST FREE
-    if "X" in sym and "=" in sym:
+    if "=" in sym:
         live = get_forex_live_yahoo(sym, fallback)
         if live: return live
-    # 4. YFINANCE FAST
     try:
         live = yf.Ticker(sym).fast_info.get('last_price')
-        if live and live > 0:
-            return float(live)
+        if live and live > 0: return float(live)
     except: pass
     return fallback
 
@@ -137,16 +126,15 @@ def maybe_send_daily_report():
         pairs_count = {}
         for s in today_signals: pairs_count[s['pair']] = pairs_count.get(s['pair'], 0) + 1
         top_pair = max(pairs_count, key=pairs_count.get) if pairs_count else "None"
-        msg = f"""📊📈 FXMEGA UG DAILY v11.3 📉📊
+        msg = f"""📊📈 FXMEGA UG DAILY v11.4 📉📊
 📅 {now_utc.date()} EAT 22:00 | Pairs: {len(PAIRS)}
 📈 Total: {total} | 🟢 BUY: {buys} | 🔴 SELL: {sells}
 🏆 Top: {top_pair} | 📦 Active: {len(load_trades())}
-📋 Last 5:
 """
         for s in today_signals[-5:]:
             msg += f"- {s['time'][11:16]} {s['pair']} {s['side']} @ {fmt_price(s['entry'], s['entry'])}\n"
-        msg += f"\n✅ LIVE: BINANCE + GOLD-API + YAHOO\n{CONTACT} {BRAND}"
-        send(msg, "DAILY REPORT - FXMEGA UG v11.3")
+        msg += f"\n✅ LIVE v11.4 MATIC FIXED\n{CONTACT} {BRAND}"
+        send(msg, "DAILY REPORT - FXMEGA UG v11.4")
 
 maybe_send_daily_report()
 
@@ -175,13 +163,12 @@ def get_dxy():
     except: return None,None,False,False,False,False
 
 active=load_trades()
-print(f"Active: {len(active)} | Scanning {len(PAIRS)} pairs")
+print(f"Active: {len(active)} | Scanning {len(PAIRS)} pairs v11.4")
 
 # TRAILING
 for sym,name in PAIRS.items():
     if name not in active: continue
-    if "USD=X" in sym or "GBP" in sym or "EUR" in sym or "JPY" in sym or "CHF" in sym or "AUD" in sym or "CAD" in sym or "NZD" in sym:
-        if is_weekend(): continue
+    if "=" in sym and is_weekend(): continue
     try:
         df=yf.download(sym, period="1d", interval="15m", auto_adjust=True, progress=False)
         if df.empty: continue
@@ -210,11 +197,16 @@ for sym,name in PAIRS.items():
 blocked=get_red_news()
 dxy_cur,dxy_ema,dxy_below,dxy_above,dxy_up,dxy_down=get_dxy()
 
+# NEW: SPAM PROTECTION
+signals_sent_this_run = 0
+MAX_SIGNALS_PER_RUN = 3
+
 for sym,name in PAIRS.items():
     if name in active: continue
-    # weekend forex block
-    if ("USD=X" in sym or "EUR" in name or "GBP" in name or "JPY" in name or "CHF" in name or "AUD" in name or "CAD" in name or "NZD" in name) and is_weekend():
-        continue
+    if signals_sent_this_run >= MAX_SIGNALS_PER_RUN: 
+        print(f"MAX {MAX_SIGNALS_PER_RUN} signals reached, stopping")
+        break
+    if "=" in sym and is_weekend(): continue
     curr="EUR" if "EUR" in name else "GBP" if "GBP" in name else "JPY" if "JPY" in name else "CHF" if "CHF" in name else "AUD" if "AUD" in name else "CAD" if "CAD" in name else "NZD" if "NZD" in name else "USD"
     if curr in blocked or ("USD" in blocked and name in ["GOLD","SILVER","BITCOIN","ETHEREUM","BNB"]): continue
     try:
@@ -261,13 +253,14 @@ for sym,name in PAIRS.items():
             active[name]={"side":side,"entry":cur,"sl":sl,"tp1":tp1,"tp2":tp2,"tp3":tp3,"tp4":tp4,"stage":0,"time":str(datetime.now(timezone.utc))}
             save_trades(active); log_signal_history(name,side,cur,sl,tp1,tp2,tp3,tp4,atr)
             source = "BINANCE" if sym in BINANCE_MAP else "GOLD-API" if sym in ["GC=F","SI=F"] else "YAHOO LIVE"
-            msg=f"""{emoji_side} {name} v11.3 {source} ✅
+            msg=f"""{emoji_side} {name} v11.4 {source} ✅
 ⭐⭐⭐ {side} SIGNAL {name} ⭐⭐⭐
-💰 LIVE ENTRY ({source}): {fmt_price(cur,cur)} (Candle {fmt_price(candle_close,cur)})
+💰 LIVE ENTRY ({source}): {fmt_price(cur,cur)}
 📏 ATR: {fmt_price(atr,cur)} | 🛑 SL: {fmt_price(sl,cur)} | 🎯 TP1: {fmt_price(tp1,cur)} | TP2: {fmt_price(tp2,cur)} | TP3: {fmt_price(tp3,cur)} | TP4: {fmt_price(tp4,cur)}
-⏱️ M15 | Pairs: {len(PAIRS)} | BE/Trail
+⏱️ M15 | Max 3/run | BE/Trail
 {CONTACT} {BRAND} 🚀"""
-            send(msg, f"{side} - {name} v11.3 {source}")
+            send(msg, f"{side} - {name} v11.4 {source}")
+            signals_sent_this_run += 1
     except Exception as e: print(f"Scan {name}: {e}")
 
-print(f"✅ v11.3 DONE - {len(PAIRS)} pairs LIVE - GOLD FIXED 🎉")
+print(f"✅ v11.4 DONE - {len(PAIRS)} pairs - {signals_sent_this_run} signals sent - MATIC FIXED 🎉")
