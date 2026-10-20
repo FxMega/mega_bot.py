@@ -27,7 +27,7 @@ jobs:
 
       - name: Run bot
         run: |
-          python bot.py
+          python fx_mega.py
 
       - name: Save trades + history for daily report
         run: |
