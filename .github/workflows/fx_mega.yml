@@ -1,4 +1,4 @@
-name: FXMEGA UG Bot v11.3 LIVE MAX
+name: FXMEGA UG Bot v11.4 LIVE MAX FIXED
 
 on:
   schedule:
@@ -18,8 +18,8 @@ jobs:
       - run: pip install yfinance pandas requests
       - run: python fx_mega.py
       - run: |
-          git config --global user.name "FXMEGA Bot v11.3"
+          git config --global user.name "FXMEGA Bot v11.4"
           git config --global user.email "bot@fxmega.ug"
           git add active_trades.json signals_history.json || echo "No files"
-          git diff --quiet && git diff --staged --quiet || git commit -m "v11.3 live max 24 pairs"
+          git diff --quiet && git diff --staged --quiet || git commit -m "v11.4 matic fixed"
           git push || echo "Nothing"
