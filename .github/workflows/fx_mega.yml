@@ -31,7 +31,7 @@ jobs:
 
       - name: Run Bot v11.6 RSI+OB
         run: |
-          python bot.py
+          python fx_mega.py
 
       - name: Save trade files
         uses: actions/upload-artifact@v4
