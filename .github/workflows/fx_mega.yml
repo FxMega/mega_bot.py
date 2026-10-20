@@ -1,36 +1,30 @@
-name: FXMEGA v10.17
+name: FXMEGA UG v10.21 LIVE ENTRY
 
 on:
   schedule:
-    # Run every 15 minutes at :01 to allow candle close + 6s sleep
-    - cron: '1,16,31,46 * * * *'
-  workflow_dispatch:  # manual run button
+        - cron: '2,17,32,47 * * * *'  # 2 min AFTER candle close = LIVE data ready
+  workflow_dispatch:
 
 jobs:
-  run-fx:
+  run-bot:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
-
     steps:
-      - name: Checkout code
+            - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Python
+            - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Install deps
+            - name: Install deps
         run: |
-          pip install --upgrade pip
           pip install yfinance pandas requests
 
-      - name: Run FXMEGA v10.17
-        env:
-          TZ: UTC
+            - name: Run FXMEGA Bot
         run: |
-          echo "Starting FXMEGA v10.17 GOLD -24 + DXY + BULLS + RED NEWS + 6s"
-          python fx_mega.py
+          python fx_mega_fixed.py
 
-      - name: Done
-        run: echo "✅ DONE v10.17"
+            - name: Keep workflow alive
+        run: |
+          echo "✅ Bot ran at $(date) - ENTRY = LIVE"
