@@ -280,6 +280,19 @@ for sym,name in PAIRS.items():
         base_sell=(bear_crt or bear_csd) and cur<ema_now and down and bears_ok
         base_buy = base_buy and rsi_bull
         base_sell = base_sell and rsi_bear
+# --- v11.7 FIX FOR LTC CASE ---
+# 1. RSI Exhaustion filter
+if sell_signal and rsi < 35:  # was 20 in your signal
+    print(f"BLOCK SELL {name} - RSI {rsi} oversold")
+    sell_signal = False
+if buy_signal and rsi > 65:
+    print(f"BLOCK BUY {name} - RSI {rsi} overbought")
+    buy_signal = False
+
+# 2. Require OB for crypto
+if name in ["LITECOIN","BITCOIN","ETHEREUM","DOGECOIN","XRP"] and "No fresh" in ob_msg:
+    if rsi < 40 or rsi > 60:
+        sell_signal = buy_signal = False
 
         if base_buy and htf==-1:
             print(f"HTF BLOCK BUY {name}"); continue
