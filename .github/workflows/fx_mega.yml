@@ -16,7 +16,7 @@ jobs:
         with:
           python-version: '3.11'
       - run: pip install yfinance pandas requests
-      - run: python bot.py
+      - run: python fx_mega.py
       - run: |
           git config --global user.name "FXMEGA Bot v11.3"
           git config --global user.email "bot@fxmega.ug"
