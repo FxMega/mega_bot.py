@@ -35,9 +35,9 @@ def send(msg, title="FXMEGA UG"):
     try:
         requests.post(NTFY_URL, data=msg.encode('utf-8'),
             headers={"Title": title, "Priority": "high", "Tags": "chart", "Content-Type": "text/plain; charset=utf-8"}, timeout=10)
-        print(f"SENT: {title}")
+        print(f"✅ SENT: {title}")
         time.sleep(5)
-    except Exception as e: print(f"Send error: {e}")
+    except Exception as e: print(f"❌ Send error: {e}")
 
 def load_trades():
     if os.path.exists(TRADE_FILE):
@@ -194,7 +194,7 @@ def was_recent_signal(pair_name, hours=2):
 
 # TRAILING & SCAN
 active=load_trades()
-print(f"Active: {len(active)} | v11.6 EARLY CATCH RSI+OB")
+print(f"🔵 Active: {len(active)} | 🚀 v11.7 FIXED LTC PUMP - BLOCK RSI<35 SELL")
 
 for sym,name in PAIRS.items():
     if name not in active: continue
@@ -238,7 +238,7 @@ for sym,name in PAIRS.items():
     if signals_sent_this_run>=MAX_SIGNALS_PER_RUN: break
     if "=" in sym and is_weekend(): continue
     if was_recent_signal(name, hours=2):
-        print(f"Cooldown {name}"); continue
+        print(f"⏳ Cooldown {name}"); continue
     curr="EUR" if "EUR" in name else "GBP" if "GBP" in name else "JPY" if "JPY" in name else "CHF" if "CHF" in name else "AUD" if "AUD" in name else "CAD" if "CAD" in name else "NZD" if "NZD" in name else "USD"
     if curr in blocked or ("USD" in blocked and name in ["GOLD","SILVER","BITCOIN","ETHEREUM","BNB"]): continue
     try:
@@ -280,24 +280,29 @@ for sym,name in PAIRS.items():
         base_sell=(bear_crt or bear_csd) and cur<ema_now and down and bears_ok
         base_buy = base_buy and rsi_bull
         base_sell = base_sell and rsi_bear
-# --- v11.7 FIX FOR LTC CASE ---
-# 1. RSI Exhaustion filter
-if sell_signal and rsi < 35:  # was 20 in your signal
-    print(f"BLOCK SELL {name} - RSI {rsi} oversold")
-    sell_signal = False
-if buy_signal and rsi > 65:
-    print(f"BLOCK BUY {name} - RSI {rsi} overbought")
-    buy_signal = False
 
-# 2. Require OB for crypto
-if name in ["LITECOIN","BITCOIN","ETHEREUM","DOGECOIN","XRP"] and "No fresh" in ob_msg:
-    if rsi < 40 or rsi > 60:
-        sell_signal = buy_signal = False
+        # ================= v11.7 FIX FOR LTC CASE - CORRECTLY INDENTED =================
+        # 1️⃣ RSI Exhaustion filter - BLOCKS YOUR LTC RSI 20.0 SELL THAT PUMPED TO 60.71
+        if base_sell and rsi_now < 35:
+            print(f"❌ BLOCK SELL {name} - RSI {rsi_now:.1f} OVERSOLD 🚫 - would pump like LTC 58->60.71")
+            base_sell = False
+        if base_buy and rsi_now > 65:
+            print(f"❌ BLOCK BUY {name} - RSI {rsi_now:.1f} OVERBOUGHT 🚫")
+            base_buy = False
+
+        # 2️⃣ Require OB for crypto - fixes "No fresh OB" fake signal
+        has_any_ob = ob_found_buy or ob_found_sell
+        if name in ["LITECOIN","BITCOIN","ETHEREUM","DOGECOIN","XRP","CHAINLINK","SOLANA","BNB","CARDANO","AVALANCHE","POLKADOT","POLYGON"] and not has_any_ob:
+            if rsi_now < 40 or rsi_now > 60:
+                print(f"❌ BLOCK {name} - No fresh OB + RSI {rsi_now:.1f} = No institutional level ⛔")
+                base_sell = False
+                base_buy = False
+        # ================= END v11.7 FIX =================
 
         if base_buy and htf==-1:
-            print(f"HTF BLOCK BUY {name}"); continue
+            print(f"⛔ HTF BLOCK BUY {name} H1 DOWN"); continue
         if base_sell and htf==1:
-            print(f"HTF BLOCK SELL {name}"); continue
+            print(f"⛔ HTF BLOCK SELL {name} H1 UP"); continue
 
         if name=="GOLD":
             if dxy_cur is None: continue
@@ -315,15 +320,15 @@ if name in ["LITECOIN","BITCOIN","ETHEREUM","DOGECOIN","XRP"] and "No fresh" in 
             if side=="BUY":
                 sl=cur-sl_mult*atr; tp1=cur+1.5*atr; tp2=cur+2.0*atr; tp3=cur+2.5*atr; tp4=cur+3.0*atr
                 zone_low=cur-0.3*atr; zone_high=cur+0.2*atr
-                ob_info=f"OB: {fmt_price(ob_price,cur)} ✅" if ob_found_buy else "OB: No fresh OB"
+                ob_info=f"OB: {fmt_price(ob_price,cur)} ✅" if ob_found_buy else "OB: No fresh OB ❌"
             else:
                 sl=cur+sl_mult*atr; tp1=cur-1.5*atr; tp2=cur-2.0*atr; tp3=cur-2.5*atr; tp4=cur-3.0*atr
                 zone_low=cur-0.2*atr; zone_high=cur+0.3*atr
-                ob_info=f"OB: {fmt_price(ob_price_s,cur)} ✅" if ob_found_sell else "OB: No fresh OB"
+                ob_info=f"OB: {fmt_price(ob_price_s,cur)} ✅" if ob_found_sell else "OB: No fresh OB ❌"
             active[name]={"side":side,"entry":cur,"sl":sl,"tp1":tp1,"tp2":tp2,"tp3":tp3,"tp4":tp4,"stage":0,"time":str(datetime.now(timezone.utc))}
             save_trades(active); log_signal_history(name,side,cur,sl,tp1,tp2,tp3,tp4,atr,rsi_now,ob_price if side=="BUY" else ob_price_s)
-            source="BINANCE" if sym in BINANCE_MAP else "GOLD-API" if sym in ["GC=F","SI=F"] else "YAHOO LIVE"
-            msg=f"""{emoji_side} {name} v11.6 EARLY ✅
+            source="🟢 BINANCE LIVE" if sym in BINANCE_MAP else "🟡 GOLD-API LIVE" if sym in ["GC=F","SI=F"] else "🔵 YAHOO CHARTS FOREX"
+            msg=f"""{emoji_side} {name} v11.7 FIXED ✅
 ⭐⭐⭐ {side} SIGNAL {name} ⭐⭐⭐
 💰 ENTRY ZONE: {fmt_price(zone_low,cur)} - {fmt_price(zone_high,cur)}
 👉 NOW {fmt_price(cur,cur)} is BEST (discount) | Valid 30m
@@ -331,9 +336,9 @@ if name in ["LITECOIN","BITCOIN","ETHEREUM","DOGECOIN","XRP"] and "No fresh" in 
 📈 H1 Trend: {'UP' if htf==1 else 'DOWN' if htf==-1 else 'NEUTRAL'} | H1 Filter ON
 📏 ATR: {fmt_price(atr,cur)} | 🛑 SL: {fmt_price(sl,cur)} ({sl_mult}x) | 🎯 TP1: {fmt_price(tp1,cur)} | TP2: {fmt_price(tp2,cur)} | TP3: {fmt_price(tp3,cur)} | TP4: {fmt_price(tp4,cur)}
 🔍 {source} | BE at TP1 | Trail TP2/TP3 | 2h Cooldown
-{CONTACT} {BRAND} 🚀 EARLY CATCH"""
-            send(msg, f"{side} - {name} v11.6 RSI+OB {source}")
+{CONTACT} {BRAND} 🚀 v11.7 LTC FIX"""
+            send(msg, f"{side} - {name} v11.7 RSI+OB {source}")
             signals_sent_this_run+=1
-    except Exception as e: print(f"Scan {name}: {e}")
+    except Exception as e: print(f"⚠️ Scan {name}: {e}")
 
-print(f"✅ v11.6 DONE - {signals_sent_this_run} signals - RSI+OB EARLY CATCH")
+print(f"✅ v11.7 DONE - {signals_sent_this_run} signals - FIXED LTC RSI 20 BLOCK")
