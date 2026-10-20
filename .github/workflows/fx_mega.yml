@@ -1,9 +1,9 @@
-name: FXMEGA UG Bot v10.7
+name: FXMEGA UG Bot v10.9
 
 on:
   schedule:
-    - cron: '*/15 * * * *'  # Every 15 minutes
-  workflow_dispatch:  # Manual run button
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
 
 jobs:
   run-bot:
@@ -15,24 +15,24 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set up Python
+      - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
       - name: Install dependencies
         run: |
-          pip install --upgrade pip
+          python -m pip install --upgrade pip
           pip install yfinance pandas requests
 
       - name: Run bot
         run: |
-          python fx_mega.py
+          python bot.py
 
-      - name: Save active trades
+      - name: Save trades + history for daily report
         run: |
           git config --global user.name "FXMEGA Bot"
           git config --global user.email "bot@fxmega.ug"
-          git add active_trades.json || echo "No trades file"
-          git diff --quiet && git diff --staged --quiet || git commit -m "Update active trades [bot]"
-          git push || echo "No changes to push"
+          git add active_trades.json signals_history.json || echo "No history yet"
+          git diff --quiet && git diff --staged --quiet || git commit -m "v10.9 Save trades + history for daily report"
+          git push || echo "Nothing to push"
