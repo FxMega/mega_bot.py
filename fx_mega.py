@@ -10,6 +10,7 @@ BRAND = "FXMEGA UG"
 CONTACT = "📞 0700848808"
 TRADE_FILE = "active_trades.json"
 HISTORY_FILE = "signals_history.json"
+DAILY_CAP_FILE = "daily_usd_cap.json"
 
 PAIRS = {
     "BTC-USD": "BITCOIN", "ETH-USD": "ETHEREUM", "SOL-USD": "SOLANA",
@@ -23,6 +24,7 @@ PAIRS = {
     "EURGBP=X": "EURGBP"
 }
 DXY_SYMBOL = "DX-Y.NYB"
+BINANCE_MAP = {"BTC-USD":"BTCUSDT","ETH-USD":"ETHUSDT","SOL-USD":"SOLUSDT","BNB-USD":"BNBUSDT","XRP-USD":"XRPUSDT","DOGE-USD":"DOGEUSDT","ADA-USD":"ADAUSDT","AVAX-USD":"AVAXUSDT","LINK-USD":"LINKUSDT","LTC-USD":"LTCUSDT","DOT-USD":"DOTUSDT"}
 
 def send(msg, title="FXMEGA UG"):
     try:
@@ -56,7 +58,6 @@ def load_history():
             with open(HISTORY_FILE,'r') as f: return json.load(f)
         except: return []
     return []
-
 def f(x):
     try:
         if hasattr(x, 'iloc'): return float(x.iloc[0])
@@ -68,7 +69,20 @@ def fmt_price(p, ref):
     elif ref < 100: return f"{p:.3f}"
     else: return f"{p:.2f}"
 
-# BINANCE PAXG LIVE
+# === DAILY CAP FOR USD ===
+def get_today_usd_trades():
+    if os.path.exists(DAILY_CAP_FILE):
+        try:
+            with open(DAILY_CAP_FILE,'r') as f: d=json.load(f)
+            if d.get('date') == str(datetime.now(timezone.utc).date()):
+                return d.get('usd_trades',0)
+        except: pass
+    return 0
+def inc_usd_trade():
+    d={'date': str(datetime.now(timezone.utc).date()), 'usd_trades': get_today_usd_trades()+1}
+    with open(DAILY_CAP_FILE,'w') as f: json.dump(d,f)
+
+# LIVE PRICES (same as v11.9)
 def get_binance_paxg_live():
     try:
         r = requests.get("https://api.binance.com/api/v3/ticker/price?symbol=PAXGUSDT", timeout=3).json()
@@ -102,10 +116,9 @@ def get_live_price(sym, fallback):
             r = requests.get("https://api.gold-api.com/price/XAG", timeout=4).json()
             return float(r['price'])
         except: pass
-    if sym in ["BTC-USD","ETH-USD","SOL-USD","BNB-USD","XRP-USD","DOGE-USD","ADA-USD","AVAX-USD","LINK-USD","LTC-USD","DOT-USD"]:
-        m = {"BTC-USD":"BTCUSDT","ETH-USD":"ETHUSDT","SOL-USD":"SOLUSDT","BNB-USD":"BNBUSDT","XRP-USD":"XRPUSDT","DOGE-USD":"DOGEUSDT","ADA-USD":"ADAUSDT","AVAX-USD":"AVAXUSDT","LINK-USD":"LINKUSDT","LTC-USD":"LTCUSDT","DOT-USD":"DOTUSDT"}
+    if sym in BINANCE_MAP:
         try:
-            r = requests.get(f"https://api.binance.com/api/v3/ticker/price?symbol={m[sym]}", timeout=3).json()
+            r = requests.get(f"https://api.binance.com/api/v3/ticker/price?symbol={BINANCE_MAP[sym]}", timeout=3).json()
             return float(r['price'])
         except: pass
     if "=" in sym:
@@ -118,6 +131,14 @@ def get_live_price(sym, fallback):
     return fallback
 
 def is_weekend(): return datetime.now(timezone.utc).weekday() >= 5
+def is_session_blocked():
+    # Kampala UTC+3, 13:00 Kampala = 10:00 UTC
+    now_utc = datetime.now(timezone.utc)
+    kampala_hour = (now_utc.hour + 3) % 24
+    if kampala_hour >= 13:
+        return True
+    return False
+
 def get_red_news():
     blocked=set()
     try:
@@ -201,9 +222,42 @@ def was_recent_signal(pair_name, hours=2):
         except: continue
     return False
 
-active=load_trades()
-print(f"🔵 Active: {len(active)} | 🚀 v11.9 BULLS POWER + BINANCE + STRUCTURE")
+# === NEW v12 DAILY CRT + CSD HELPERS ===
+def get_daily_crt(df_d):
+    try:
+        pdh = f(df_d['High'].iloc[-2])
+        pdl = f(df_d['Low'].iloc[-2])
+        rng = pdh - pdl
+        crt50 = (pdh + pdl)/2
+        crt25 = pdl + rng*0.25
+        crt75 = pdl + rng*0.75
+        return pdh, pdl, crt50, crt25, crt75, rng
+    except:
+        return None,None,None,None,None,None
 
+def check_continuation(df, side):
+    # After impulse, next 2 M30 must make higher high (BUY) or lower low (SELL)
+    try:
+        if len(df) < 5: return False
+        if side=="BUY":
+            return f(df['High'].iloc[-1]) > f(df['High'].iloc[-2]) and f(df['Low'].iloc[-1]) > f(df['Low'].iloc[-3])
+        else:
+            return f(df['Low'].iloc[-1]) < f(df['Low'].iloc[-2]) and f(df['High'].iloc[-1]) < f(df['High'].iloc[-3])
+    except: return False
+
+def get_btc_daily_crt():
+    try:
+        df_btc_d = yf.download("BTC-USD", period="10d", interval="1d", auto_adjust=True, progress=False)
+        if isinstance(df_btc_d.columns, pd.MultiIndex): df_btc_d.columns=df_btc_d.columns.get_level_values(0)
+        _,_,btc50,_,_,_=get_daily_crt(df_btc_d)
+        cur_btc = get_live_price("BTC-USD", f(df_btc_d['Close'].iloc[-1]))
+        return cur_btc, btc50
+    except:
+        return None, None
+
+# TRAILING (same)
+active=load_trades()
+print(f"🔵 Active: {len(active)} | 🚀 v12.0 DAILY CRT + CSD")
 for sym,name in PAIRS.items():
     if name not in active: continue
     if "=" in sym and is_weekend(): continue
@@ -223,7 +277,9 @@ for sym,name in PAIRS.items():
         if hit_tp1 and stage<1: send(f"🔒 {name} AUTO BE ✅", f"AUTO BE - {name}"); t['sl']=entry; t['stage']=1; active[name]=t; save_trades(active); continue
     except Exception as e: print(f"Trail {name}: {e}")
 
+# MAIN SCAN v12.0
 blocked=get_red_news(); dxy_cur,dxy_ema,dxy_below,dxy_above,dxy_up,dxy_down=get_dxy(); signals_sent_this_run=0; MAX_SIGNALS_PER_RUN=3
+btc_cur, btc_crt50 = get_btc_daily_crt()
 
 for sym,name in PAIRS.items():
     if name in active: continue
@@ -232,6 +288,12 @@ for sym,name in PAIRS.items():
     if was_recent_signal(name, hours=2): print(f"⏳ Cooldown {name}"); continue
     curr="EUR" if "EUR" in name else "GBP" if "GBP" in name else "JPY" if "JPY" in name else "CHF" if "CHF" in name else "AUD" if "AUD" in name else "CAD" if "CAD" in name else "NZD" if "NZD" in name else "USD"
     if curr in blocked or ("USD" in blocked and name in ["GOLD","SILVER","BITCOIN","ETHEREUM","BNB"]): continue
+    if is_session_blocked():
+        print(f"⏰ SESSION BLOCK - No new entries after 13:00 Kampala"); break
+    # USD CAP
+    is_usd_pair = "USD" in name or name in ["GOLD","SILVER"]
+    if is_usd_pair and get_today_usd_trades() >= 1:
+        print(f"⛔ USD CAP BLOCK {name} - already 1 USD trade today"); continue
     try:
         df=yf.download(sym, period="5d", interval="15m", auto_adjust=True, progress=False); df_d=yf.download(sym, period="10d", interval="1d", auto_adjust=True, progress=False)
         if df.empty or len(df)<100: continue
@@ -243,58 +305,81 @@ for sym,name in PAIRS.items():
         candle_close=f(close.iloc[-1]); cur=get_live_price(sym,candle_close)
         hnow,lnow=f(high.iloc[-1]),f(low.iloc[-1]); min_atr=candle_close*0.0015; atr=atr_raw if atr_raw>=min_atr else min_atr
         htf=get_htf_trend(sym); ms, swing_high, swing_low = get_market_structure(df)
-        pdh,pdl=f(df_d['High'].iloc[-2]),f(df_d['Low'].iloc[-2]); crt50=(pdh+pdl)/2
+        
+        # === DAILY CRT ===
+        pdh,pdl,crt50,crt25,crt75,crt_range = get_daily_crt(df_d)
+        if pdh is None: continue
+        is_discount = cur < crt50
+        is_premium = cur > crt50
+        is_deep_discount = cur <= crt25
+        is_deep_premium = cur >= crt75
+        crt_text = f"CRT: {fmt_price(pdl,cur)}-{fmt_price(pdh,cur)} 50%={fmt_price(crt50,cur)} {'🟢 DISCOUNT' if is_discount else '🔴 PREMIUM'}"
+        
         bull_crt=lnow<pdl and cur>pdl and cur>crt50; bear_crt=hnow>pdh and cur<pdh and cur<crt50
         body=abs(cur-f(open_.iloc[-1])); rng=hnow-lnow; bp=body/rng if rng>0 else 0; bull_csd=cur>f(open_.iloc[-1]) and bp>0.6 and cur>f(high.iloc[-2]); bear_csd=cur<f(open_.iloc[-1]) and bp>0.6 and cur<f(low.iloc[-2])
         
-        # ===== BULLS POWER STRICT LOGIC v11.9 =====
         bulls_power_now = hnow - ema_now
         bulls_power_prev = f(high.iloc[-2]) - ema_prev
-        bears_power_now = lnow - ema_now
-        bears_power_prev = f(low.iloc[-2]) - ema_prev
-        
-        # RED->GREEN or already GREEN = BUY, GREEN->RED or already RED = SELL
         bulls_green_now = bulls_power_now > 0
         bulls_green_prev = bulls_power_prev > 0
-        bears_red_now = bears_power_now < 0
-        bears_red_prev = bears_power_prev < 0
-        
-        bulls_buy_signal = bulls_green_now  # RED->GREEN (prev False, now True) OR already GREEN (both True)
-        bulls_sell_signal = bears_red_now   # Actually bears red, but per your request bulls red = sell, so bulls_power <0
-        
-        # More strict: 
-        # BUY if bulls_power >0 (green) - includes red->green crossover + already green
-        # SELL if bulls_power <0 (red) - includes green->red crossover + already red
-        # For logging
-        bulls_cross_up = (not bulls_green_prev and bulls_green_now)  # RED->GREEN
-        bulls_cross_down = (bulls_green_prev and not bulls_green_now)  # GREEN->RED
-        
+        bulls_cross_up = (not bulls_green_prev and bulls_green_now)
+        bulls_cross_down = (bulls_green_prev and not bulls_green_now)
         bulls_ok = bulls_green_now
-        bears_ok = not bulls_green_now  # bulls red = bears
+        bears_ok = not bulls_green_now
         
         rsi_now,rsi_prev=calc_rsi(close); rsi_bull = rsi_now > 50 and rsi_now > rsi_prev; rsi_bear = rsi_now < 50 and rsi_now < rsi_prev
         ob_price, ob_found_buy = find_order_block(df, "BUY"); ob_price_s, ob_found_sell = find_order_block(df, "SELL")
         
-        # Base with Bulls Power filter
-        base_buy=(bull_crt or bull_csd) and cur>ema_now and up and bulls_ok and bulls_buy_signal
-        base_sell=(bear_crt or bear_csd) and cur<ema_now and down and bears_ok and bulls_sell_signal
+        base_buy=(bull_crt or bull_csd) and cur>ema_now and up and bulls_ok
+        base_sell=(bear_crt or bear_csd) and cur<ema_now and down and bears_ok
         base_buy = base_buy and rsi_bull
         base_sell = base_sell and rsi_bear
         
-        if base_sell and rsi_now < 35: print(f"❌ BLOCK SELL {name} - RSI {rsi_now:.1f} OVERSOLD 🚫"); base_sell = False
-        if base_buy and rsi_now > 65: print(f"❌ BLOCK BUY {name} - RSI {rsi_now:.1f} OVERBOUGHT 🚫"); base_buy = False
+        # === v12 FILTERS ===
+        # 1. Daily CRT Premium/Discount Enforce
+        if base_buy and not is_discount:
+            print(f"❌ DAILY CRT BLOCK BUY {name} - Price {cur} above 50% {crt50} PREMIUM"); base_buy=False
+        if base_sell and not is_premium:
+            print(f"❌ DAILY CRT BLOCK SELL {name} - Price {cur} below 50% {crt50} DISCOUNT"); base_sell=False
+        # 2. Deep premium/discount extreme block
+        if base_buy and is_deep_premium: base_buy=False
+        if base_sell and is_deep_discount: base_sell=False
+        # 3. CSD Origin (must start from discount for BUY)
+        if base_buy:
+            csd_origin = f(low.iloc[-3])  # where move started
+            if csd_origin > crt50:
+                print(f"❌ CSD ORIGIN BLOCK BUY {name} - origin {csd_origin} in premium"); base_buy=False
+        if base_sell:
+            csd_origin = f(high.iloc[-3])
+            if csd_origin < crt50:
+                print(f"❌ CSD ORIGIN BLOCK SELL {name} - origin {csd_origin} in discount"); base_sell=False
+        # 4. Continuation Filter
+        if base_buy and not check_continuation(df, "BUY"):
+            print(f"❌ CONTINUATION BLOCK BUY {name} - no higher high"); base_buy=False
+        if base_sell and not check_continuation(df, "SELL"):
+            print(f"❌ CONTINUATION BLOCK SELL {name} - no lower low"); base_sell=False
+        # 5. BTC Daily CRT Filter for ALTS (LINK loss fix)
+        if name in ["CHAINLINK","SOLANA","ETHEREUM","BNB","CARDANO","AVALANCHE","POLKADOT","LITECOIN","DOGECOIN","XRP"]:
+            if btc_cur and btc_crt50:
+                if base_sell and btc_cur > btc_crt50:
+                    print(f"❌ BTC CRT BLOCK SELL {name} - BTC {btc_cur} above 50% {btc_crt50} BULLISH"); base_sell=False
+                if base_buy and btc_cur < btc_crt50:
+                    print(f"❌ BTC CRT BLOCK BUY {name} - BTC bearish"); base_buy=False
+        
+        if base_sell and rsi_now < 35: print(f"❌ BLOCK SELL {name} - RSI {rsi_now:.1f} OVERSOLD"); base_sell=False
+        if base_buy and rsi_now > 65: print(f"❌ BLOCK BUY {name} - RSI {rsi_now:.1f} OVERBOUGHT"); base_buy=False
         has_any_ob = ob_found_buy or ob_found_sell
         if name in ["LITECOIN","BITCOIN","ETHEREUM","DOGECOIN","XRP","CHAINLINK","SOLANA","BNB","CARDANO","AVALANCHE","POLKADOT"] and not has_any_ob:
-            if rsi_now < 40 or rsi_now > 60: base_sell = False; base_buy = False
+            if rsi_now < 40 or rsi_now > 60: base_sell=False; base_buy=False
         if "=" in sym:
             if not ob_found_buy and not ob_found_sell:
-                if 45 < rsi_now < 55: base_buy = False; base_sell = False
+                if 45 < rsi_now < 55: base_buy=False; base_sell=False
             if ms == 1 and base_sell:
                 dist_to_low = abs(cur - swing_low) / atr if atr>0 else 10
-                if dist_to_low < 1.5: print(f"⛔ BLOCK SELL {name} - AT SUPPORT {swing_low}"); base_sell = False
+                if dist_to_low < 1.5: print(f"⛔ BLOCK SELL {name} - AT SUPPORT"); base_sell=False
             if ms == -1 and base_buy:
                 dist_to_high = abs(cur - swing_high) / atr if atr>0 else 10
-                if dist_to_high < 1.5: print(f"⛔ BLOCK BUY {name} - AT RESISTANCE {swing_high}"); base_buy = False
+                if dist_to_high < 1.5: print(f"⛔ BLOCK BUY {name} - AT RESISTANCE"); base_buy=False
         if base_buy and htf==-1: print(f"⛔ HTF BLOCK BUY {name} H1 DOWN"); continue
         if base_sell and htf==1: print(f"⛔ HTF BLOCK SELL {name} H1 UP"); continue
         if name=="GOLD":
@@ -305,28 +390,30 @@ for sym,name in PAIRS.items():
             side="BUY" if buy_signal else "SELL"
             emoji_side="🟢🔥 BUY" if side=="BUY" else "🔴💥 SELL"
             if sym in ["GC=F","SI=F"]: sl_mult=1.8
-            elif sym in ["BTC-USD","ETH-USD","SOL-USD","BNB-USD","XRP-USD","DOGE-USD","ADA-USD","AVAX-USD","LINK-USD","LTC-USD","DOT-USD"]: sl_mult=2.0
+            elif sym in BINANCE_MAP: sl_mult=2.0
             else: sl_mult=1.5
             if side=="BUY": sl=cur-sl_mult*atr; tp1=cur+1.5*atr; tp2=cur+2.0*atr; tp3=cur+2.5*atr; tp4=cur+3.0*atr; zone_low=cur-0.3*atr; zone_high=cur+0.2*atr; ob_info=f"OB: {fmt_price(ob_price,cur)} ✅" if ob_found_buy else "OB: No fresh OB ❌"
             else: sl=cur+sl_mult*atr; tp1=cur-1.5*atr; tp2=cur-2.0*atr; tp3=cur-2.5*atr; tp4=cur-3.0*atr; zone_low=cur-0.2*atr; zone_high=cur+0.3*atr; ob_info=f"OB: {fmt_price(ob_price_s,cur)} ✅" if ob_found_sell else "OB: No fresh OB ❌"
             active[name]={"side":side,"entry":cur,"sl":sl,"tp1":tp1,"tp2":tp2,"tp3":tp3,"tp4":tp4,"stage":0,"time":str(datetime.now(timezone.utc))}
             save_trades(active); log_signal_history(name,side,cur,sl,tp1,tp2,tp3,tp4,atr,rsi_now,ob_price if side=="BUY" else ob_price_s)
+            if is_usd_pair: inc_usd_trade()
             if sym == "GC=F":
                 bp, src = get_binance_paxg_live(); source = "🟢 BINANCE PAXG LIVE" if src else "🟡 GOLD-API LIVE"
-            else: source="🟢 BINANCE LIVE" if sym in ["BTC-USD","ETH-USD","SOL-USD","BNB-USD","XRP-USD","DOGE-USD","ADA-USD","AVAX-USD","LINK-USD","LTC-USD","DOT-USD"] else "🔵 YAHOO FOREX"
+            else: source="🟢 BINANCE LIVE" if sym in BINANCE_MAP else "🔵 YAHOO FOREX"
             ms_text = f"MS: {'📈 UP' if ms==1 else '📉 DOWN' if ms==-1 else '➡️ NEUTRAL'}"
             bulls_text = f"🐂 Bulls: {bulls_power_now:.5f} {'🟢 GREEN' if bulls_green_now else '🔴 RED'} {'↗️ R->G CROSS' if bulls_cross_up else '↘️ G->R CROSS' if bulls_cross_down else '➡️ HOLD'}"
-            msg=f"""{emoji_side} {name} v11.9 BULLS POWER ✅
+            msg=f"""{emoji_side} {name} v12.0 DAILY CRT ✅
 ⭐⭐⭐ {side} SIGNAL {name} ⭐⭐⭐
 💰 ENTRY ZONE: {fmt_price(zone_low,cur)} - {fmt_price(zone_high,cur)}
 👉 NOW {fmt_price(cur,cur)} is BEST | Valid 30m
 📊 RSI: {rsi_now:.1f} {'📈 MOM UP' if side=='BUY' else '📉 MOM DOWN'} | {ob_info}
 {bulls_text}
 📈 H1: {'📈 UP' if htf==1 else '📉 DOWN' if htf==-1 else '➡️ NEUTRAL'} | {ms_text} | ATR: {fmt_price(atr,cur)}
+📦 {crt_text}
 🛑 SL: {fmt_price(sl,cur)} | 🎯 TP1: {fmt_price(tp1,cur)} | TP2: {fmt_price(tp2,cur)} | TP3: {fmt_price(tp3,cur)} | TP4: {fmt_price(tp4,cur)}
-🔍 {source} | BE at TP1 | Trail TP2/TP3 | 2h Cooldown
-{CONTACT} {BRAND} 🚀 v11.9 BULLS POWER"""
-            send(msg, f"{side} - {name} v11.9 BULLS {source}")
+🔍 {source} | BE at TP1 | Trail TP2/TP3 | 2h Cooldown | Daily CRT + CSD
+{CONTACT} {BRAND} 🚀 v12.0 DAILY CRT"""
+            send(msg, f"{side} - {name} v12.0 {source}")
             signals_sent_this_run+=1
     except Exception as e: print(f"⚠️ Scan {name}: {e}")
-print(f"✅ v11.9 DONE - {signals_sent_this_run} signals - BULLS POWER FILTER")
+print(f"✅ v12.0 DONE - {signals_sent_this_run} signals - DAILY CRT + CSD")
