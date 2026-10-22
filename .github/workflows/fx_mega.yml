@@ -1,51 +1,106 @@
-name: FXMEGA UG v11.6 EARLY CATCH
+# 🚀 FXMEGA v13.1 - FULL YML - 15 MINS
 
-on:
-  schedule:
-    - cron: '*/15 * * * *'  # every 15 mins
-  workflow_dispatch:  # allow manual run
+mt5:
+  login: 133559628
+  server: "Exness-MT5Real9"
+  password: "PUT_NEW_PASSWORD_HERE"
+  lot_size: 0.01
 
-jobs:
-  run-bot:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
+trading:
+  timeframe: M30
+  interval_seconds: 900
+  magic_number: 13100
+  sleep: 900
 
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+pairs:
+  forex:
+    - EURUSD
+    - GBPUSD
+    - USDJPY
+    - AUDUSD
+    - NZDUSD
+    - USDCAD
+    - USDCHF
+    - EURGBP
+    - EURJPY
+    - GBPJPY
+    - AUDJPY
+    - EURCHF
+    - GBPCHF
+    - CADJPY
+    - AUDCAD
+    - AUDCHF
+    - EURAUD
+    - GBPAUD
+    - GBPCAD
+    - NZDCAD
+    - EURCAD
+    - EURNZD
+  metals:
+    - XAUUSD
+    - XAGUSD
+    - XAUEUR
+  crypto:
+    - BTCUSD
+    - ETHUSD
+    - LINKUSD
+    - SOLUSD
+    - XRPUSD
+    - LTCUSD
+    - DOGEUSD
 
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
+strategy:
+  ema: 13
+  ema_trend: 50
+  atr_period: 14
+  atr_sl: 1.5
+  atr_tp2: 2.0
+  buy_conditions:
+    - price_above_ema13
+    - uptrend_ema13_above_ema50
+    - bulls_power_green
+    - price_near_val_poc
+  sell_conditions:
+    - price_below_ema13
+    - downtrend_ema13_below_ema50
+    - bulls_power_negative
+    - price_near_vah_poc
 
-      - name: Install dependencies
-        run: |
-          pip install --upgrade pip
-          pip install yfinance pandas requests numpy lxml
+poc:
+  formula_POC: "(H + L + C) / 3"
+  formula_Range: "H - L"
+  formula_VAH: "POC + (Range * 0.15)"
+  formula_VAL: "POC - (Range * 0.15)"
+  source_H: yesterday_daily_high
+  source_L: yesterday_daily_low
+  source_C: yesterday_daily_close
+  update_time: "00:05"
+  auto_update: true
 
-      - name: Restore trade files
-        run: |
-          if [ -f active_trades.json ]; then echo "trades exists"; else echo "{}" > active_trades.json; fi
-          if [ -f signals_history.json ]; then echo "history exists"; else echo "[]" > signals_history.json; fi
+risk:
+  sl: 1.5
+  be: after_TP1
+  tp1: 1.0
+  tp2: 2.0
+  tp3: 3.0
 
-      - name: Run Bot v11.6 RSI+OB
-        run: |
-          python fx_mega.py
+filters:
+  dxy_symbols:
+    - DXY
+    - USDX
+  news_filter: forex_factory_red_news
 
-      - name: Save trade files
-        uses: actions/upload-artifact@v4
-        with:
-          name: trade-data-${{ github.run_number }}
-          path: |
-            active_trades.json
-            signals_history.json
-          retention-days: 30
+github_signals:
+  enabled: true
+  repo: FxMega/mega_bot.py
+  branch: main
+  file: signals.json
+  raw_url: https://raw.githubusercontent.com/FxMega/mega_bot.py/main/signals.json
+  update_interval_seconds: 900
+  schedule_cron: "*/15 * * * *"
 
-      - name: Commit updated history (optional)
-        run: |
-          git config --global user.name "FXMEGA Bot"
-          git config --global user.email "bot@fxmega.ug"
-          git add active_trades.json signals_history.json || true
-          git commit -m "v11.6 update trades $(date -u)" || echo "no changes"
-          git push || echo "push failed"
+app:
+  name: FxMega V71 GitHub
+  version: V71 GitHub 15 MINS
+  market_section: Pure yfinance force moving TICK fix
+  signals_section: Live from GitHub every 15 mins
