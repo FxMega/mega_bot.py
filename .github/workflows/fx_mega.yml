@@ -1,106 +1,48 @@
-# 🚀 FXMEGA v13.1 - FULL YML - 15 MINS
+name: FXMEGA 15 MINS
 
-mt5:
-  login: 133559628
-  server: "Exness-MT5Real9"
-  password: "247256Was@"
-  lot_size: 0.01
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
 
-trading:
-  timeframe: M30
-  interval_seconds: 900
-  magic_number: 13100
-  sleep: 900
+jobs:
+  generate-signals:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
-pairs:
-  forex:
-    - EURUSD
-    - GBPUSD
-    - USDJPY
-    - AUDUSD
-    - NZDUSD
-    - USDCAD
-    - USDCHF
-    - EURGBP
-    - EURJPY
-    - GBPJPY
-    - AUDJPY
-    - EURCHF
-    - GBPCHF
-    - CADJPY
-    - AUDCAD
-    - AUDCHF
-    - EURAUD
-    - GBPAUD
-    - GBPCAD
-    - NZDCAD
-    - EURCAD
-    - EURNZD
-  metals:
-    - XAUUSD
-    - XAGUSD
-    - XAUEUR
-  crypto:
-    - BTCUSD
-    - ETHUSD
-    - LINKUSD
-    - SOLUSD
-    - XRPUSD
-    - LTCUSD
-    - DOGEUSD
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
 
-strategy:
-  ema: 13
-  ema_trend: 50
-  atr_period: 14
-  atr_sl: 1.5
-  atr_tp2: 2.0
-  buy_conditions:
-    - price_above_ema13
-    - uptrend_ema13_above_ema50
-    - bulls_power_green
-    - price_near_val_poc
-  sell_conditions:
-    - price_below_ema13
-    - downtrend_ema13_below_ema50
-    - bulls_power_negative
-    - price_near_vah_poc
+      - name: Install deps
+        run: pip install pandas numpy yfinance
 
-poc:
-  formula_POC: "(H + L + C) / 3"
-  formula_Range: "H - L"
-  formula_VAH: "POC + (Range * 0.15)"
-  formula_VAL: "POC - (Range * 0.15)"
-  source_H: yesterday_daily_high
-  source_L: yesterday_daily_low
-  source_C: yesterday_daily_close
-  update_time: "00:05"
-  auto_update: true
+      - name: Generate signals.json
+        run: |
+          cat > gen.py << 'PY'
+          import json, datetime
+          data = {
+            "updated": datetime.datetime.now().isoformat(),
+            "source": "FxMega 15min",
+            "signals": {
+              "BTC": {"type": "WAIT", "time": datetime.datetime.now().strftime("%H:%M:%S")},
+              "GOLD": {"type": "WAIT", "time": datetime.datetime.now().strftime("%H:%M:%S")},
+              "EURUSD": {"type": "WAIT", "time": datetime.datetime.now().strftime("%H:%M:%S")}
+            }
+          }
+          with open("signals.json", "w") as f:
+              json.dump(data, f, indent=2)
+          print("signals.json created")
+          PY
+          python gen.py
 
-risk:
-  sl: 1.5
-  be: after_TP1
-  tp1: 1.0
-  tp2: 2.0
-  tp3: 3.0
-
-filters:
-  dxy_symbols:
-    - DXY
-    - USDX
-  news_filter: forex_factory_red_news
-
-github_signals:
-  enabled: true
-  repo: FxMega/mega_bot.py
-  branch: main
-  file: signals.json
-  raw_url: https://raw.githubusercontent.com/FxMega/mega_bot.py/main/signals.json
-  update_interval_seconds: 900
-  schedule_cron: "*/15 * * * *"
-
-app:
-  name: FxMega V71 GitHub
-  version: V71 GitHub 15 MINS
-  market_section: Pure yfinance force moving TICK fix
-  signals_section: Live from GitHub every 15 mins
+      - name: Commit
+        run: |
+          git config --local user.email "fx@mega.com"
+          git config --local user.name "FxMega Bot"
+          git add signals.json || true
+          git diff --staged --quiet || git commit -m "FxMega 15min update"
+          git push || echo "No changes"
