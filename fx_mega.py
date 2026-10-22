@@ -1,419 +1,207 @@
-import yfinance as yf
+# 🚀 FXMEGA v13.1 FINAL - 💰 Universal Bot 💰 + 🚦 GITHUB 15 MINS
+import MetaTrader5 as mt5
 import pandas as pd
-import requests
-from datetime import datetime, timezone, timedelta
-import time, json, os
+import numpy as np
+from datetime import datetime
+import time, threading
+import json
 
-NTFY_TOPIC = "gold-ai-ug-788408267"
-NTFY_URL = f"https://ntfy.sh/{NTFY_TOPIC}"
-BRAND = "FXMEGA UG"
-CONTACT = "📞 0700848808"
-TRADE_FILE = "active_trades.json"
-HISTORY_FILE = "signals_history.json"
-DAILY_CAP_FILE = "daily_usd_cap.json"
+# 🔐 MT5 CONFIG
+MT5_LOGIN = 133559628
+MT5_SERVER = "Exness-MT5Real9"
+MT5_PASSWORD = "PUT_NEW_PASSWORD_HERE"
+LOT_SIZE = 0.01
 
-PAIRS = {
-    "BTC-USD": "BITCOIN", "ETH-USD": "ETHEREUM", "SOL-USD": "SOLANA",
-    "BNB-USD": "BNB", "XRP-USD": "XRP", "DOGE-USD": "DOGECOIN",
-    "ADA-USD": "CARDANO", "AVAX-USD": "AVALANCHE", "LINK-USD": "CHAINLINK",
-    "LTC-USD": "LITECOIN", "DOT-USD": "POLKADOT",
-    "GC=F": "GOLD", "SI=F": "SILVER",
-    "EURUSD=X": "EURUSD", "GBPUSD=X": "GBPUSD", "USDJPY=X": "USDJPY",
-    "USDCHF=X": "USDCHF", "AUDUSD=X": "AUDUSD", "USDCAD=X": "USDCAD",
-    "NZDUSD=X": "NZDUSD", "EURJPY=X": "EURJPY", "GBPJPY=X": "GBPJPY",
-    "EURGBP=X": "EURGBP"
-}
-DXY_SYMBOL = "DX-Y.NYB"
-BINANCE_MAP = {"BTC-USD":"BTCUSDT","ETH-USD":"ETHUSDT","SOL-USD":"SOLUSDT","BNB-USD":"BNBUSDT","XRP-USD":"XRPUSDT","DOGE-USD":"DOGEUSDT","ADA-USD":"ADAUSDT","AVAX-USD":"AVAXUSDT","LINK-USD":"LINKUSDT","LTC-USD":"LTCUSDT","DOT-USD":"DOTUSDT"}
+ATR_MULT_SL = 1.5
+ATR_MULT_TP2 = 2.0
 
-def send(msg, title="FXMEGA UG"):
-    try:
-        safe_title = title.encode('ascii', 'ignore').decode('ascii')
-        if not safe_title.strip(): safe_title = "FXMEGA UG Signal"
-        requests.post(NTFY_URL, data=msg.encode('utf-8'),
-            headers={"Title": safe_title, "Priority": "high", "Tags": "chart,rocket"}, timeout=10)
-        print(f"✅ SENT: {safe_title}"); time.sleep(2)
-    except Exception as e: print(f"❌ Send error: {e}")
+FOREX_PAIRS = ["EURUSD","GBPUSD","USDJPY","AUDUSD","NZDUSD","USDCAD","USDCHF","EURGBP","EURJPY","GBPJPY","AUDJPY","EURCHF","GBPCHF","CADJPY","AUDCAD","AUDCHF","EURAUD","GBPAUD","GBPCAD","NZDCAD","EURCAD","EURNZD"]
+METALS = ["XAUUSD","XAGUSD","XAUEUR"]
+CRYPTO = ["BTCUSD","ETHUSD","LINKUSD","SOLUSD","XRPUSD","LTCUSD","DOGEUSD"]
+ALL_PAIRS = list(set(FOREX_PAIRS + METALS + CRYPTO))
+POC_CACHE = {}
+GITHUB_SIGNALS = {}
 
-def load_trades():
-    if os.path.exists(TRADE_FILE):
-        try:
-            with open(TRADE_FILE, 'r') as f: return json.load(f)
-        except: return {}
-    return {}
-def save_trades(tr):
-    with open(TRADE_FILE, 'w') as f: json.dump(tr, f, indent=2)
-def log_signal_history(name, side, entry, sl, tp1, tp2, tp3, tp4, atr, rsi, ob):
-    history = []
-    if os.path.exists(HISTORY_FILE):
-        try:
-            with open(HISTORY_FILE, 'r') as f: history = json.load(f)
-        except: history = []
-    history.append({"time": str(datetime.now(timezone.utc)), "pair": name, "side": side, "entry": entry, "sl": sl, "tp1": tp1, "tp2": tp2, "tp3": tp3, "tp4": tp4, "atr": atr, "rsi": rsi, "ob": ob})
-    history = history[-1500:]
-    with open(HISTORY_FILE, 'w') as f: json.dump(history, f, indent=2)
-def load_history():
-    if os.path.exists(HISTORY_FILE):
-        try:
-            with open(HISTORY_FILE,'r') as f: return json.load(f)
-        except: return []
-    return []
-def f(x):
-    try:
-        if hasattr(x, 'iloc'): return float(x.iloc[0])
-        return float(x)
-    except: return float(x)
-def fmt_price(p, ref):
-    if ref < 1: return f"{p:.5f}"
-    elif ref < 10: return f"{p:.4f}"
-    elif ref < 100: return f"{p:.3f}"
-    else: return f"{p:.2f}"
+def init_mt5():
+    if not mt5.initialize(login=MT5_LOGIN, password=MT5_PASSWORD, server=MT5_SERVER):
+        print("❌ MT5 fail", mt5.last_error())
+        return False
+    print("✅ MT5 Connected! 🚀")
+    return True
 
-# === DAILY CAP FOR USD ===
-def get_today_usd_trades():
-    if os.path.exists(DAILY_CAP_FILE):
-        try:
-            with open(DAILY_CAP_FILE,'r') as f: d=json.load(f)
-            if d.get('date') == str(datetime.now(timezone.utc).date()):
-                return d.get('usd_trades',0)
-        except: pass
-    return 0
-def inc_usd_trade():
-    d={'date': str(datetime.now(timezone.utc).date()), 'usd_trades': get_today_usd_trades()+1}
-    with open(DAILY_CAP_FILE,'w') as f: json.dump(d,f)
+def get_data(symbol, tf, n=100):
+    rates = mt5.copy_rates(symbol, tf, 0, n)
+    if rates is None or len(rates) < 50: return None
+    df = pd.DataFrame(rates)
+    df['time'] = pd.to_datetime(df['time'], unit='s')
+    return df
 
-# LIVE PRICES (same as v11.9)
-def get_binance_paxg_live():
-    try:
-        r = requests.get("https://api.binance.com/api/v3/ticker/price?symbol=PAXGUSDT", timeout=3).json()
-        price = float(r['price'])
-        if price > 1000: return price, "🟢 BINANCE PAXG LIVE"
-    except: pass
-    return None, None
-def get_gold_api_live():
-    try:
-        r = requests.get("https://api.gold-api.com/price/XAU", timeout=4).json()
-        price = float(r['price']) * 1.003
-        if price > 1000: return price, "🟡 GOLD-API LIVE"
-    except: pass
-    return None, None
-def get_forex_live_yahoo(sym, fallback):
-    try:
-        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{sym}?interval=1m&range=1d"
-        r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=4).json()
-        price = float(r['chart']['result'][0]['meta']['regularMarketPrice'])
-        if price > 0 and abs(price - fallback)/fallback < 0.015: return price
-    except: pass
-    return None
-def get_live_price(sym, fallback):
-    if sym == "GC=F":
-        bin_price, src = get_binance_paxg_live()
-        if bin_price: return bin_price
-        g_price, _ = get_gold_api_live()
-        if g_price: return g_price
-    if sym == "SI=F":
-        try:
-            r = requests.get("https://api.gold-api.com/price/XAG", timeout=4).json()
-            return float(r['price'])
-        except: pass
-    if sym in BINANCE_MAP:
-        try:
-            r = requests.get(f"https://api.binance.com/api/v3/ticker/price?symbol={BINANCE_MAP[sym]}", timeout=3).json()
-            return float(r['price'])
-        except: pass
-    if "=" in sym:
-        live = get_forex_live_yahoo(sym, fallback)
-        if live: return live
-    try:
-        live = yf.Ticker(sym).fast_info.get('last_price')
-        if live and live > 0: return float(live)
-    except: pass
-    return fallback
+def ema(df, p=13): return df['close'].ewm(span=p).mean()
+def atr(df, p=14):
+    hl = df['high'] - df['low']
+    hc = np.abs(df['high'] - df['close'].shift())
+    lc = np.abs(df['low'] - df['close'].shift())
+    tr = pd.concat([hl,hc,lc], axis=1).max(axis=1)
+    return tr.rolling(p).mean()
+def bulls_power(df, p=13): return df['high'] - ema(df,p)
+def is_uptrend(df): return ema(df,13).iloc[-1] > df['close'].ewm(span=50).mean().iloc[-1]
+def is_downtrend(df): return ema(df,13).iloc[-1] < df['close'].ewm(span=50).mean().iloc[-1]
 
-def is_weekend(): return datetime.now(timezone.utc).weekday() >= 5
-def is_session_blocked():
-    # Kampala UTC+3, 13:00 Kampala = 10:00 UTC
-    now_utc = datetime.now(timezone.utc)
-    kampala_hour = (now_utc.hour + 3) % 24
-    if kampala_hour >= 13:
-        return True
-    return False
+def get_poc_levels(symbol, force_update=False):
+    global POC_CACHE
+    daily = get_data(symbol, mt5.TIMEFRAME_D1, 5)
+    if daily is None: return POC_CACHE.get(symbol)
+    y = daily.iloc[-2]
+    y_date = y['time'].date()
+    if not force_update and symbol in POC_CACHE and POC_CACHE[symbol]['date'] == y_date:
+        return POC_CACHE[symbol]
+    H, L, C = y['high'], y['low'], y['close']
+    Range = H - L
+    POC = (H + L + C) / 3
+    VAH = POC + (Range * 0.15)
+    VAL = POC - (Range * 0.15)
+    new_levels = {"POC":POC,"VAH":VAH,"VAL":VAL,"Range":Range,"date":y_date}
+    POC_CACHE[symbol] = new_levels
+    print(f"🆕 [POC UPDATED] {symbol} 📅 {y_date} 🎯 POC:{POC:.5f} 🔝 VAH:{VAH:.5f} 🔻 VAL:{VAL:.5f}")
+    return new_levels
 
-def get_red_news():
-    blocked=set()
-    try:
-        r=requests.get("https://nfs.faireconomy.media/ff_calendar_thisweek.json",timeout=10).json()
-        now=datetime.now(timezone.utc)
-        for ev in r:
-            if ev.get("impact")!="High": continue
-            try: et=datetime.fromisoformat(ev.get("date").replace("Z","+00:00"))
-            except: continue
-            if -30 <= (et-now).total_seconds()/60 <= 60:
-                c=ev.get("country","").strip()
-                if c: blocked.add(c)
-    except: pass
-    return blocked
-def get_dxy():
-    try:
-        df=yf.download(DXY_SYMBOL, period="5d", interval="15m", auto_adjust=True, progress=False)
-        if df.empty: df=yf.download("DX=F", period="5d", interval="15m", auto_adjust=True, progress=False)
-        if isinstance(df.columns, pd.MultiIndex): df.columns=df.columns.get_level_values(0)
-        close=df['Close']; ema=close.ewm(span=13).mean()
-        return f(close.iloc[-1]), f(ema.iloc[-1]), f(close.iloc[-1])<f(ema.iloc[-1]), f(close.iloc[-1])>f(ema.iloc[-1]), f(ema.iloc[-1])>f(ema.iloc[-2]), f(ema.iloc[-1])<f(ema.iloc[-2])
-    except: return None,None,False,False,False,False
+def daily_poc_updater():
+    while True:
+        now = datetime.now()
+        if now.hour == 0 and now.minute == 5:
+            print("⏰ === DAILY POC UPDATE ALL PAIRS 🌍 ===")
+            for sym in ALL_PAIRS:
+                get_poc_levels(sym, force_update=True)
+                time.sleep(0.2)
+            time.sleep(70)
+        time.sleep(30)
 
-def get_htf_trend(sym):
-    try:
-        dfh = yf.download(sym, period="20d", interval="1h", auto_adjust=True, progress=False)
-        if dfh.empty or len(dfh) < 200: return 0
-        if isinstance(dfh.columns, pd.MultiIndex): dfh.columns=dfh.columns.get_level_values(0)
-        close = dfh['Close']; ema50 = close.ewm(span=50).mean(); ema200 = close.ewm(span=200).mean()
-        e50 = f(ema50.iloc[-1]); e200 = f(ema200.iloc[-1])
-        if e50 > e200 * 1.0002: return 1
-        if e50 < e200 * 0.9998: return -1
-        return 0
-    except: return 0
+def dxy_filter(for_buy=True):
+    dxy = get_data("DXY", mt5.TIMEFRAME_M30, 100) or get_data("USDX", mt5.TIMEFRAME_M30, 100)
+    if dxy is None: return True
+    e = ema(dxy,13)
+    below = dxy.iloc[-1]['close'] < e.iloc[-1]
+    down = e.iloc[-1] < e.iloc[-5]
+    return (below and down) if for_buy else (not below and not down)
 
-def get_market_structure(df):
-    try:
-        if len(df) < 60: return 0, 0, 0
-        close = df['Close']; high = df['High']; low = df['Low']
-        ema50 = close.ewm(span=50).mean(); e50 = f(ema50.iloc[-1]); cur = f(close.iloc[-1])
-        last_swing_high = f(high.iloc[-20:].max()); last_swing_low = f(low.iloc[-20:].min())
-        higher_low = f(low.iloc[-1]) > f(low.iloc[-5]); lower_high = f(high.iloc[-1]) < f(high.iloc[-5])
-        if cur > e50 and higher_low: return 1, last_swing_high, last_swing_low
-        if cur < e50 and lower_high: return -1, last_swing_high, last_swing_low
-        return 0, last_swing_high, last_swing_low
-    except: return 0,0,0
+def check_buy(symbol):
+    df = get_data(symbol, mt5.TIMEFRAME_M30, 100)
+    if df is None: return False, None
+    poc = get_poc_levels(symbol)
+    if poc is None: return False, None
+    price = df.iloc[-1]['close']
+    e13 = ema(df,13).iloc[-1]
+    bp = bulls_power(df,13)
+    if price < e13: return False, None
+    if not is_uptrend(df): return False, None
+    if not (bp.iloc[-2] < 0 and bp.iloc[-1] > 0 or bp.iloc[-1] > 0): return False, None
+    if df.iloc[-1]['close'] <= df.iloc[-1]['open']: return False, None
+    if price > poc["VAH"]: return False, None
+    if "XAU" in symbol and not dxy_filter(True): return False, None
+    if price <= poc["POC"] + poc["Range"]*0.05:
+        return True, {"atr":atr(df,14).iloc[-1],"poc":poc,"price":price}
+    return False, None
 
-def calc_rsi(series, period=14):
-    try:
-        delta = series.diff(); gain = (delta.where(delta > 0, 0)).rolling(window=period).mean(); loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean(); rs = gain / loss; rsi = 100 - (100 / (1 + rs)); return f(rsi.iloc[-1]), f(rsi.iloc[-2])
-    except: return 50,50
+def check_sell(symbol):
+    df = get_data(symbol, mt5.TIMEFRAME_M30, 100)
+    if df is None: return False, None
+    poc = get_poc_levels(symbol)
+    if poc is None: return False, None
+    price = df.iloc[-1]['close']
+    e13 = ema(df,13).iloc[-1]
+    bp = bulls_power(df,13)
+    if price > e13: return False, None
+    if not is_downtrend(df): return False, None
+    if not (bp.iloc[-1] < 0): return False, None
+    if df.iloc[-1]['close'] >= df.iloc[-1]['open']: return False, None
+    if price < poc["VAL"]: return False, None
+    if price >= poc["POC"] - poc["Range"]*0.05:
+        return True, {"atr":atr(df,14).iloc[-1],"poc":poc,"price":price}
+    return False, None
 
-def find_order_block(df, side="BUY"):
+def execute(symbol, direction, info):
+    tick = mt5.symbol_info_tick(symbol)
+    price = tick.ask if direction=="BUY" else tick.bid
+    sl = price - info["atr"]*ATR_MULT_SL if direction=="BUY" else price + info["atr"]*ATR_MULT_SL
+    tp = price + info["atr"]*ATR_MULT_TP2 if direction=="BUY" else price - info["atr"]*ATR_MULT_TP2
+    emoji = "🟢🟢🟢 BUY" if direction=="BUY" else "🔴🔴🔴 SELL"
+    req = {"action":mt5.TRADE_ACTION_DEAL,"symbol":symbol,"volume":LOT_SIZE,"type":mt5.ORDER_TYPE_BUY if direction=="BUY" else mt5.ORDER_TYPE_SELL,"price":price,"sl":sl,"tp":tp,"deviation":20,"magic":13100,"comment":f"FXMEGA {direction}","type_time":mt5.ORDER_TIME_GTC,"type_filling":mt5.ORDER_FILLING_IOC}
+    res = mt5.order_send(req)
+    print(f"{emoji} {symbol} 💰 Lot:{LOT_SIZE} SL:{sl:.5f} TP:{tp:.5f} 🎯 POC:{info['poc']['POC']:.2f}")
+    return res, price, sl, tp
+
+def save_github_signals():
     try:
-        if len(df) < 25: return None, False
-        closes = df['Close']; opens = df['Open']; highs = df['High']; lows = df['Low']
-        for i in range(len(df)-5, len(df)-20, -1):
-            o = f(opens.iloc[i]); c = f(closes.iloc[i])
-            if side == "BUY":
-                if c < o:
-                    next_high = max([f(highs.iloc[j]) for j in range(i+1, i+4)])
-                    if next_high > f(highs.iloc[i]) * 1.0003:
-                        ob_low = f(lows.iloc[i]); cur = f(closes.iloc[-1]); atr = f((highs-lows).rolling(14).mean().iloc[-1])
-                        if abs(cur - ob_low) < 2.5 * atr: return ob_low, True
+        def map_symbol(sym):
+            m = {"XAUUSD":"GOLD","XAGUSD":"SILVER","BTCUSD":"BTC","ETHUSD":"ETH","LINKUSD":"LINK","SOLUSD":"SOL","XRPUSD":"XRP","LTCUSD":"LTC","DOGEUSD":"DOGE"}
+            return m.get(sym, sym)
+        signals_data = {
+            "updated": datetime.now().isoformat(),
+            "source": "FxMega mega_bot.py v13.1 15min",
+            "github_url": "https://raw.githubusercontent.com/FxMega/mega_bot.py/main/signals.json",
+            "signals": {}
+        }
+        for sym in ALL_PAIRS:
+            app_sym = map_symbol(sym)
+            if sym in GITHUB_SIGNALS and GITHUB_SIGNALS[sym]["type"] != "WAIT":
+                signals_data["signals"][app_sym] = GITHUB_SIGNALS[sym]
             else:
-                if c > o:
-                    next_low = min([f(lows.iloc[j]) for j in range(i+1, i+4)])
-                    if next_low < f(lows.iloc[i]) * 0.9997:
-                        ob_high = f(highs.iloc[i]); cur = f(closes.iloc[-1]); atr = f((highs-lows).rolling(14).mean().iloc[-1])
-                        if abs(cur - ob_high) < 2.5 * atr: return ob_high, True
-        return None, False
-    except: return None, False
+                if app_sym not in signals_data["signals"]:
+                    signals_data["signals"][app_sym] = {"type": "WAIT", "time": datetime.now().strftime("%H:%M:%S")}
+        with open("signals.json", "w") as f:
+            json.dump(signals_data, f, indent=2)
+        print(f"📤 [GITHUB] signals.json updated - {len(signals_data['signals'])} pairs - {datetime.now()}")
+    except Exception as e:
+        print(f"❌ GitHub save error: {e}")
 
-def was_recent_signal(pair_name, hours=2):
-    hist = load_history(); now = datetime.now(timezone.utc)
-    for h in reversed(hist[-20:]):
-        if h.get('pair') != pair_name: continue
-        try:
-            t = datetime.fromisoformat(h['time'].replace('Z','+00:00'))
-            if (now - t) < timedelta(hours=hours): return True
-        except: continue
-    return False
+def run():
+    if not init_mt5(): return
+    for sym in ALL_PAIRS: mt5.symbol_select(sym, True)
+    for sym in ALL_PAIRS: get_poc_levels(sym, True)
+    threading.Thread(target=daily_poc_updater, daemon=True).start()
+    print(f"🚀 FXMEGA v13.1 FINAL + GITHUB 15 MINS Running - {len(ALL_PAIRS)} pairs 🌍 | POC auto-updates 00:05 ⏰ | M30 ⏳ | Lot 0.01 💵 | Writing signals.json every 15 mins")
+    save_github_signals()
+    while True:
+        for sym in ALL_PAIRS:
+            ok, info = check_buy(sym)
+            if ok: 
+                res, price, sl, tp = execute(sym, "BUY", info)
+                GITHUB_SIGNALS[sym] = {
+                    "type": "BUY",
+                    "entry": float(price),
+                    "sl": float(sl),
+                    "be": float(price + info["atr"]*0.5),
+                    "tp1": float(price + info["atr"]*1.0),
+                    "tp2": float(tp),
+                    "tp3": float(price + info["atr"]*3.0),
+                    "score": "7/8",
+                    "time": datetime.now().strftime("%H:%M:%S"),
+                    "poc": float(info["poc"]["POC"]),
+                    "timer": "15:00"
+                }
+            else:
+                ok, info = check_sell(sym)
+                if ok: 
+                    res, price, sl, tp = execute(sym, "SELL", info)
+                    GITHUB_SIGNALS[sym] = {
+                        "type": "SELL",
+                        "entry": float(price),
+                        "sl": float(sl),
+                        "be": float(price - info["atr"]*0.5),
+                        "tp1": float(price - info["atr"]*1.0),
+                        "tp2": float(tp),
+                        "tp3": float(price - info["atr"]*3.0),
+                        "score": "7/8",
+                        "time": datetime.now().strftime("%H:%M:%S"),
+                        "poc": float(info["poc"]["POC"]),
+                        "timer": "15:00"
+                    }
+                else:
+                    if sym not in GITHUB_SIGNALS:
+                        GITHUB_SIGNALS[sym] = {"type": "WAIT", "time": datetime.now().strftime("%H:%M:%S")}
+        save_github_signals()
+        print(f"⏳ Cycle done {datetime.now()} - signals.json updated for FxMega app - Waiting 15 mins ☕ - time.sleep(900) added as you requested")
+        time.sleep(900)  # ✅ 15 MINS AS YOU REQUESTED - ADDED HERE
 
-# === NEW v12 DAILY CRT + CSD HELPERS ===
-def get_daily_crt(df_d):
-    try:
-        pdh = f(df_d['High'].iloc[-2])
-        pdl = f(df_d['Low'].iloc[-2])
-        rng = pdh - pdl
-        crt50 = (pdh + pdl)/2
-        crt25 = pdl + rng*0.25
-        crt75 = pdl + rng*0.75
-        return pdh, pdl, crt50, crt25, crt75, rng
-    except:
-        return None,None,None,None,None,None
-
-def check_continuation(df, side):
-    # After impulse, next 2 M30 must make higher high (BUY) or lower low (SELL)
-    try:
-        if len(df) < 5: return False
-        if side=="BUY":
-            return f(df['High'].iloc[-1]) > f(df['High'].iloc[-2]) and f(df['Low'].iloc[-1]) > f(df['Low'].iloc[-3])
-        else:
-            return f(df['Low'].iloc[-1]) < f(df['Low'].iloc[-2]) and f(df['High'].iloc[-1]) < f(df['High'].iloc[-3])
-    except: return False
-
-def get_btc_daily_crt():
-    try:
-        df_btc_d = yf.download("BTC-USD", period="10d", interval="1d", auto_adjust=True, progress=False)
-        if isinstance(df_btc_d.columns, pd.MultiIndex): df_btc_d.columns=df_btc_d.columns.get_level_values(0)
-        _,_,btc50,_,_,_=get_daily_crt(df_btc_d)
-        cur_btc = get_live_price("BTC-USD", f(df_btc_d['Close'].iloc[-1]))
-        return cur_btc, btc50
-    except:
-        return None, None
-
-# TRAILING (same)
-active=load_trades()
-print(f"🔵 Active: {len(active)} | 🚀 v12.0 DAILY CRT + CSD")
-for sym,name in PAIRS.items():
-    if name not in active: continue
-    if "=" in sym and is_weekend(): continue
-    try:
-        df=yf.download(sym, period="1d", interval="15m", auto_adjust=True, progress=False)
-        if df.empty: continue
-        if isinstance(df.columns, pd.MultiIndex): df.columns=df.columns.get_level_values(0)
-        cur=get_live_price(sym, f(df['Close'].iloc[-1]))
-        t=active[name]; side,entry,stage=t['side'],t['entry'],t.get('stage',0); tp1,tp2,tp3,tp4=t['tp1'],t['tp2'],t['tp3'],t['tp4']; sl_now=t['sl']
-        hit_sl=(cur<=sl_now) if side=="BUY" else (cur>=sl_now)
-        if hit_sl:
-            send(f"🛑 {name} SL HIT {fmt_price(sl_now,cur)} at {fmt_price(cur,cur)}", f"SL HIT - {name}"); del active[name]; save_trades(active); continue
-        hit_tp1=(cur>=tp1) if side=="BUY" else (cur<=tp1); hit_tp2=(cur>=tp2) if side=="BUY" else (cur<=tp2); hit_tp3=(cur>=tp3) if side=="BUY" else (cur<=tp3); hit_tp4=(cur>=tp4) if side=="BUY" else (cur<=tp4)
-        if hit_tp4: send(f"🏁 {name} TP4 HIT CLOSE! 🎉", f"TP4 HIT - {name}"); del active[name]; save_trades(active); continue
-        if hit_tp3 and stage<3: send(f"🔒 {name} TRAIL TO TP2 🔥", f"TRAIL TP2 - {name}"); t['sl']=tp2; t['stage']=3; active[name]=t; save_trades(active); continue
-        if hit_tp2 and stage<2: send(f"🔒 {name} TRAIL TO TP1 🔥", f"TRAIL TP1 - {name}"); t['sl']=tp1; t['stage']=2; active[name]=t; save_trades(active); continue
-        if hit_tp1 and stage<1: send(f"🔒 {name} AUTO BE ✅", f"AUTO BE - {name}"); t['sl']=entry; t['stage']=1; active[name]=t; save_trades(active); continue
-    except Exception as e: print(f"Trail {name}: {e}")
-
-# MAIN SCAN v12.0
-blocked=get_red_news(); dxy_cur,dxy_ema,dxy_below,dxy_above,dxy_up,dxy_down=get_dxy(); signals_sent_this_run=0; MAX_SIGNALS_PER_RUN=3
-btc_cur, btc_crt50 = get_btc_daily_crt()
-
-for sym,name in PAIRS.items():
-    if name in active: continue
-    if signals_sent_this_run>=MAX_SIGNALS_PER_RUN: break
-    if "=" in sym and is_weekend(): continue
-    if was_recent_signal(name, hours=2): print(f"⏳ Cooldown {name}"); continue
-    curr="EUR" if "EUR" in name else "GBP" if "GBP" in name else "JPY" if "JPY" in name else "CHF" if "CHF" in name else "AUD" if "AUD" in name else "CAD" if "CAD" in name else "NZD" if "NZD" in name else "USD"
-    if curr in blocked or ("USD" in blocked and name in ["GOLD","SILVER","BITCOIN","ETHEREUM","BNB"]): continue
-    if is_session_blocked():
-        print(f"⏰ SESSION BLOCK - No new entries after 13:00 Kampala"); break
-    # USD CAP
-    is_usd_pair = "USD" in name or name in ["GOLD","SILVER"]
-    if is_usd_pair and get_today_usd_trades() >= 1:
-        print(f"⛔ USD CAP BLOCK {name} - already 1 USD trade today"); continue
-    try:
-        df=yf.download(sym, period="5d", interval="15m", auto_adjust=True, progress=False); df_d=yf.download(sym, period="10d", interval="1d", auto_adjust=True, progress=False)
-        if df.empty or len(df)<100: continue
-        if isinstance(df.columns, pd.MultiIndex): df.columns=df.columns.get_level_values(0)
-        if isinstance(df_d.columns, pd.MultiIndex): df_d.columns=df_d.columns.get_level_values(0)
-        close,high,low,open_=df['Close'],df['High'],df['Low'],df['Open']
-        tr=pd.concat([high-low,(high-close.shift()).abs(),(low-close.shift()).abs()],axis=1).max(axis=1); atr_raw=f(tr.rolling(14).mean().iloc[-1])
-        ema13=close.ewm(span=13).mean(); ema_now,ema_prev=f(ema13.iloc[-1]),f(ema13.iloc[-2]); up,down=ema_now>ema_prev,ema_now<ema_prev
-        candle_close=f(close.iloc[-1]); cur=get_live_price(sym,candle_close)
-        hnow,lnow=f(high.iloc[-1]),f(low.iloc[-1]); min_atr=candle_close*0.0015; atr=atr_raw if atr_raw>=min_atr else min_atr
-        htf=get_htf_trend(sym); ms, swing_high, swing_low = get_market_structure(df)
-        
-        # === DAILY CRT ===
-        pdh,pdl,crt50,crt25,crt75,crt_range = get_daily_crt(df_d)
-        if pdh is None: continue
-        is_discount = cur < crt50
-        is_premium = cur > crt50
-        is_deep_discount = cur <= crt25
-        is_deep_premium = cur >= crt75
-        crt_text = f"CRT: {fmt_price(pdl,cur)}-{fmt_price(pdh,cur)} 50%={fmt_price(crt50,cur)} {'🟢 DISCOUNT' if is_discount else '🔴 PREMIUM'}"
-        
-        bull_crt=lnow<pdl and cur>pdl and cur>crt50; bear_crt=hnow>pdh and cur<pdh and cur<crt50
-        body=abs(cur-f(open_.iloc[-1])); rng=hnow-lnow; bp=body/rng if rng>0 else 0; bull_csd=cur>f(open_.iloc[-1]) and bp>0.6 and cur>f(high.iloc[-2]); bear_csd=cur<f(open_.iloc[-1]) and bp>0.6 and cur<f(low.iloc[-2])
-        
-        bulls_power_now = hnow - ema_now
-        bulls_power_prev = f(high.iloc[-2]) - ema_prev
-        bulls_green_now = bulls_power_now > 0
-        bulls_green_prev = bulls_power_prev > 0
-        bulls_cross_up = (not bulls_green_prev and bulls_green_now)
-        bulls_cross_down = (bulls_green_prev and not bulls_green_now)
-        bulls_ok = bulls_green_now
-        bears_ok = not bulls_green_now
-        
-        rsi_now,rsi_prev=calc_rsi(close); rsi_bull = rsi_now > 50 and rsi_now > rsi_prev; rsi_bear = rsi_now < 50 and rsi_now < rsi_prev
-        ob_price, ob_found_buy = find_order_block(df, "BUY"); ob_price_s, ob_found_sell = find_order_block(df, "SELL")
-        
-        base_buy=(bull_crt or bull_csd) and cur>ema_now and up and bulls_ok
-        base_sell=(bear_crt or bear_csd) and cur<ema_now and down and bears_ok
-        base_buy = base_buy and rsi_bull
-        base_sell = base_sell and rsi_bear
-        
-        # === v12 FILTERS ===
-        # 1. Daily CRT Premium/Discount Enforce
-        if base_buy and not is_discount:
-            print(f"❌ DAILY CRT BLOCK BUY {name} - Price {cur} above 50% {crt50} PREMIUM"); base_buy=False
-        if base_sell and not is_premium:
-            print(f"❌ DAILY CRT BLOCK SELL {name} - Price {cur} below 50% {crt50} DISCOUNT"); base_sell=False
-        # 2. Deep premium/discount extreme block
-        if base_buy and is_deep_premium: base_buy=False
-        if base_sell and is_deep_discount: base_sell=False
-        # 3. CSD Origin (must start from discount for BUY)
-        if base_buy:
-            csd_origin = f(low.iloc[-3])  # where move started
-            if csd_origin > crt50:
-                print(f"❌ CSD ORIGIN BLOCK BUY {name} - origin {csd_origin} in premium"); base_buy=False
-        if base_sell:
-            csd_origin = f(high.iloc[-3])
-            if csd_origin < crt50:
-                print(f"❌ CSD ORIGIN BLOCK SELL {name} - origin {csd_origin} in discount"); base_sell=False
-        # 4. Continuation Filter
-        if base_buy and not check_continuation(df, "BUY"):
-            print(f"❌ CONTINUATION BLOCK BUY {name} - no higher high"); base_buy=False
-        if base_sell and not check_continuation(df, "SELL"):
-            print(f"❌ CONTINUATION BLOCK SELL {name} - no lower low"); base_sell=False
-        # 5. BTC Daily CRT Filter for ALTS (LINK loss fix)
-        if name in ["CHAINLINK","SOLANA","ETHEREUM","BNB","CARDANO","AVALANCHE","POLKADOT","LITECOIN","DOGECOIN","XRP"]:
-            if btc_cur and btc_crt50:
-                if base_sell and btc_cur > btc_crt50:
-                    print(f"❌ BTC CRT BLOCK SELL {name} - BTC {btc_cur} above 50% {btc_crt50} BULLISH"); base_sell=False
-                if base_buy and btc_cur < btc_crt50:
-                    print(f"❌ BTC CRT BLOCK BUY {name} - BTC bearish"); base_buy=False
-        
-        if base_sell and rsi_now < 35: print(f"❌ BLOCK SELL {name} - RSI {rsi_now:.1f} OVERSOLD"); base_sell=False
-        if base_buy and rsi_now > 65: print(f"❌ BLOCK BUY {name} - RSI {rsi_now:.1f} OVERBOUGHT"); base_buy=False
-        has_any_ob = ob_found_buy or ob_found_sell
-        if name in ["LITECOIN","BITCOIN","ETHEREUM","DOGECOIN","XRP","CHAINLINK","SOLANA","BNB","CARDANO","AVALANCHE","POLKADOT"] and not has_any_ob:
-            if rsi_now < 40 or rsi_now > 60: base_sell=False; base_buy=False
-        if "=" in sym:
-            if not ob_found_buy and not ob_found_sell:
-                if 45 < rsi_now < 55: base_buy=False; base_sell=False
-            if ms == 1 and base_sell:
-                dist_to_low = abs(cur - swing_low) / atr if atr>0 else 10
-                if dist_to_low < 1.5: print(f"⛔ BLOCK SELL {name} - AT SUPPORT"); base_sell=False
-            if ms == -1 and base_buy:
-                dist_to_high = abs(cur - swing_high) / atr if atr>0 else 10
-                if dist_to_high < 1.5: print(f"⛔ BLOCK BUY {name} - AT RESISTANCE"); base_buy=False
-        if base_buy and htf==-1: print(f"⛔ HTF BLOCK BUY {name} H1 DOWN"); continue
-        if base_sell and htf==1: print(f"⛔ HTF BLOCK SELL {name} H1 UP"); continue
-        if name=="GOLD":
-            if dxy_cur is None: continue
-            buy_signal=base_buy and dxy_below and dxy_down; sell_signal=base_sell and dxy_above and dxy_up
-        else: buy_signal,sell_signal=base_buy,base_sell
-        if buy_signal or sell_signal:
-            side="BUY" if buy_signal else "SELL"
-            emoji_side="🟢🔥 BUY" if side=="BUY" else "🔴💥 SELL"
-            if sym in ["GC=F","SI=F"]: sl_mult=1.8
-            elif sym in BINANCE_MAP: sl_mult=2.0
-            else: sl_mult=1.5
-            if side=="BUY": sl=cur-sl_mult*atr; tp1=cur+1.5*atr; tp2=cur+2.0*atr; tp3=cur+2.5*atr; tp4=cur+3.0*atr; zone_low=cur-0.3*atr; zone_high=cur+0.2*atr; ob_info=f"OB: {fmt_price(ob_price,cur)} ✅" if ob_found_buy else "OB: No fresh OB ❌"
-            else: sl=cur+sl_mult*atr; tp1=cur-1.5*atr; tp2=cur-2.0*atr; tp3=cur-2.5*atr; tp4=cur-3.0*atr; zone_low=cur-0.2*atr; zone_high=cur+0.3*atr; ob_info=f"OB: {fmt_price(ob_price_s,cur)} ✅" if ob_found_sell else "OB: No fresh OB ❌"
-            active[name]={"side":side,"entry":cur,"sl":sl,"tp1":tp1,"tp2":tp2,"tp3":tp3,"tp4":tp4,"stage":0,"time":str(datetime.now(timezone.utc))}
-            save_trades(active); log_signal_history(name,side,cur,sl,tp1,tp2,tp3,tp4,atr,rsi_now,ob_price if side=="BUY" else ob_price_s)
-            if is_usd_pair: inc_usd_trade()
-            if sym == "GC=F":
-                bp, src = get_binance_paxg_live(); source = "🟢 BINANCE PAXG LIVE" if src else "🟡 GOLD-API LIVE"
-            else: source="🟢 BINANCE LIVE" if sym in BINANCE_MAP else "🔵 YAHOO FOREX"
-            ms_text = f"MS: {'📈 UP' if ms==1 else '📉 DOWN' if ms==-1 else '➡️ NEUTRAL'}"
-            bulls_text = f"🐂 Bulls: {bulls_power_now:.5f} {'🟢 GREEN' if bulls_green_now else '🔴 RED'} {'↗️ R->G CROSS' if bulls_cross_up else '↘️ G->R CROSS' if bulls_cross_down else '➡️ HOLD'}"
-            msg=f"""{emoji_side} {name} v12.0 DAILY CRT ✅
-⭐⭐⭐ {side} SIGNAL {name} ⭐⭐⭐
-💰 ENTRY ZONE: {fmt_price(zone_low,cur)} - {fmt_price(zone_high,cur)}
-👉 NOW {fmt_price(cur,cur)} is BEST | Valid 30m
-📊 RSI: {rsi_now:.1f} {'📈 MOM UP' if side=='BUY' else '📉 MOM DOWN'} | {ob_info}
-{bulls_text}
-📈 H1: {'📈 UP' if htf==1 else '📉 DOWN' if htf==-1 else '➡️ NEUTRAL'} | {ms_text} | ATR: {fmt_price(atr,cur)}
-📦 {crt_text}
-🛑 SL: {fmt_price(sl,cur)} | 🎯 TP1: {fmt_price(tp1,cur)} | TP2: {fmt_price(tp2,cur)} | TP3: {fmt_price(tp3,cur)} | TP4: {fmt_price(tp4,cur)}
-🔍 {source} | BE at TP1 | Trail TP2/TP3 | 2h Cooldown | Daily CRT + CSD
-{CONTACT} {BRAND} 🚀 v12.0 DAILY CRT"""
-            send(msg, f"{side} - {name} v12.0 {source}")
-            signals_sent_this_run+=1
-    except Exception as e: print(f"⚠️ Scan {name}: {e}")
-print(f"✅ v12.0 DONE - {signals_sent_this_run} signals - DAILY CRT + CSD")
+if __name__ == "__main__":
+    run()
