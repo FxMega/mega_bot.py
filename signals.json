@@ -1,18 +1,18 @@
 {
-  "updated": "2026-10-27T07:16:53.619524",
+  "updated": "2026-10-27T08:08:33.624226",
   "source": "FxMega 15min GitHub",
   "signals": {
     "BTC": {
       "type": "WAIT",
-      "time": "07:16:53"
+      "time": "08:08:33"
     },
     "GOLD": {
       "type": "WAIT",
-      "time": "07:16:53"
+      "time": "08:08:33"
     },
     "EURUSD": {
       "type": "WAIT",
-      "time": "07:16:53"
+      "time": "08:08:33"
     }
   }
 }
