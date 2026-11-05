@@ -150,23 +150,26 @@ def track(trade, g, state):
     """Walk candles since last check; send TP/SL/BE alerts."""
     buy = trade["side"] == "BUY"
     for ts, c in g[g.index > pd.Timestamp(trade["last_ts"])].iterrows():
+        when = f"{ts:%b %d %H:%M} UTC"
         sl_hit = c.low <= trade["sl"] if buy else c.high >= trade["sl"]
+
         def reached(level):
             return c.high >= level if buy else c.low <= level
+
         if sl_hit:  # conservative: SL checked first within a candle
             label = "BE stop (profit locked)" if trade["tp1_hit"] else "STOP LOSS"
-            tg(f"{'🟡' if trade['tp1_hit'] else '🔴'} XAU/USD {trade['side']} - {label} hit at {fmt(trade['sl'])}")
+            tg(f"{'🟡' if trade['tp1_hit'] else '🔴'} XAU/USD {trade['side']} - {label} hit at {fmt(trade['sl'])}\nCandle: {when}")
             state["open"] = None
             return
         if not trade["tp1_hit"] and reached(trade["tp1"]):
             trade["tp1_hit"] = True
             trade["sl"] = trade["be"]
-            tg(f"🟢 XAU/USD {trade['side']} - TP1 hit ({fmt(trade['tp1'])}). Move SL to BE {fmt(trade['be'])}")
+            tg(f"🟢 XAU/USD {trade['side']} - TP1 hit ({fmt(trade['tp1'])}). Move SL to BE {fmt(trade['be'])}\nCandle: {when}")
         if trade["tp1_hit"] and not trade["tp2_hit"] and reached(trade["tp2"]):
             trade["tp2_hit"] = True
-            tg(f"🟢 XAU/USD {trade['side']} - TP2 hit ({fmt(trade['tp2'])})")
+            tg(f"🟢 XAU/USD {trade['side']} - TP2 hit ({fmt(trade['tp2'])})\nCandle: {when}")
         if reached(trade["tp3"]):
-            tg(f"🏆 XAU/USD {trade['side']} - TP3 hit ({fmt(trade['tp3'])}). Trade closed.")
+            tg(f"🏆 XAU/USD {trade['side']} - TP3 hit ({fmt(trade['tp3'])}). Trade closed.\nCandle: {when}")
             state["open"] = None
             return
         trade["last_ts"] = str(ts)
