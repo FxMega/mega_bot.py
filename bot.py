@@ -11,6 +11,7 @@ EMA_N, ATR_N = 13, 14
 NEWS_WINDOW = timedelta(minutes=30)       # block signals +/- 30 min around red news
 TP1_X, TP2_X, TP3_X, SL_X, BE_X = 1.8, 2.5, 3.0, 1.2, 1.0
 STATE_FILE = "state.json"
+FRESH_BARS = 20         # M1 break must be within the last N M1 candles (covers delayed runs)
 
 
 def tg(msg):
@@ -38,9 +39,9 @@ def market_closed(now):
 
 
 # ---------- data ----------
-def get_gold():
+def td_candles(interval, size):
     r = requests.get("https://api.twelvedata.com/time_series", params=dict(
-        symbol="XAU/USD", interval=INTERVAL, outputsize=120,
+        symbol="XAU/USD", interval=interval, outputsize=size,
         timezone="UTC", apikey=TD_KEY), timeout=20).json()
     if "values" not in r:
         raise RuntimeError(f"Twelve Data error: {r}")
@@ -48,6 +49,14 @@ def get_gold():
     df["datetime"] = pd.to_datetime(df["datetime"], utc=True)
     df = df.set_index("datetime")[["open", "high", "low", "close"]].astype(float)
     return df.iloc[:-1]  # drop the still-forming candle
+
+
+def get_gold():
+    return td_candles(INTERVAL, 120)
+
+
+def get_m1():
+    return td_candles("1min", 150)
 
 
 def get_dxy():
@@ -71,14 +80,49 @@ def atr(df):
 
 
 def crt(g, buy):
-    """Candle Range Theory: candle sweeps prior candle's low (high) and closes back inside."""
+    """Candle Range Theory: candle sweeps prior candle's low (high) and closes back inside.
+    Returns the open time of the sweep candle, or None."""
     for k in (1, 2):
         c1, c2 = g.iloc[-k - 1], g.iloc[-k]
         if buy and c2.low < c1.low and c2.close > c1.low:
-            return True
+            return g.index[-k]
         if not buy and c2.high > c1.high and c2.close < c1.high:
-            return True
-    return False
+            return g.index[-k]
+    return None
+
+
+def m1_break(m1, since, buy):
+    """Bullish/bearish BOS or CHoCH on M1 after the M15 sweep candle opened.
+    Returns (label, time of the breaking M1 candle) or None."""
+    w = m1[m1.index >= since]
+    n = len(w)
+    if n < 8:
+        return None
+    hi, lo, cl = w.high.values, w.low.values, w.close.values
+    if buy:
+        swings = [i for i in range(2, n - 2) if hi[i] == hi[i - 2:i + 3].max()]
+        ext = int(lo.argmin())      # the sweep low
+    else:
+        swings = [i for i in range(2, n - 2) if lo[i] == lo[i - 2:i + 3].min()]
+        ext = int(hi.argmax())      # the sweep high
+    for j in range(max(3, n - FRESH_BARS), n):
+        if j <= ext:
+            continue                # break must come after the sweep extreme
+        prior = [i for i in swings if i <= j - 3]   # confirmed swings only
+        if not prior:
+            continue
+        k = prior[-1]
+        if buy:
+            level = hi[k]
+            broke = cl[j] > level and cl[j - 1] <= level
+            was_down = len(prior) > 1 and level < hi[prior[-2]]   # lower highs before = CHoCH
+        else:
+            level = lo[k]
+            broke = cl[j] < level and cl[j - 1] >= level
+            was_down = len(prior) > 1 and level > lo[prior[-2]]   # higher lows before = CHoCH
+        if broke:
+            return ("CHoCH" if was_down else "BOS"), w.index[j]
+    return None
 
 
 def csd(g, buy):
@@ -116,22 +160,50 @@ def red_news(now):
 
 
 # ---------- strategy ----------
-def check(side, g, d):
-    buy = side == "BUY"
-    ge, de = ema(g.close), ema(d.close)
-    gp, dp = g.close.iloc[-1], d.close.iloc[-1]
+def trend_ok(df, buy):
+    """Gold: price above EMA13 and EMA sloping up (SELL: the opposite)."""
+    e = ema(df.close)
     if buy:
-        c1 = gp > ge.iloc[-1] and ge.iloc[-1] > ge.iloc[-2]
-        c2 = dp < de.iloc[-1] and de.iloc[-1] < de.iloc[-2]
-        p = g.high - ge                      # Bulls Power
-        c4 = p.iloc[-1] > p.iloc[-2]         # green = rising
-    else:
-        c1 = gp < ge.iloc[-1] and ge.iloc[-1] < ge.iloc[-2]
-        c2 = dp > de.iloc[-1] and de.iloc[-1] > de.iloc[-2]
-        p = g.low - ge                       # Bears Power
-        c4 = p.iloc[-1] < p.iloc[-2]         # falling = bearish
-    c3 = crt(g, buy) or csd(g, buy)
-    return c1 and c2 and c3 and c4
+        return df.close.iloc[-1] > e.iloc[-1] and e.iloc[-1] > e.iloc[-2]
+    return df.close.iloc[-1] < e.iloc[-1] and e.iloc[-1] < e.iloc[-2]
+
+
+def dxy_ok(df, buy):
+    """Gold BUY needs DXY below EMA13 and sloping down (SELL is the opposite)."""
+    e = ema(df.close)
+    if buy:
+        return df.close.iloc[-1] < e.iloc[-1] and e.iloc[-1] < e.iloc[-2]
+    return df.close.iloc[-1] > e.iloc[-1] and e.iloc[-1] > e.iloc[-2]
+
+
+def power_ok(g, buy):
+    """Bulls Power (buy) above zero, or rising 2 bars in a row. Bears Power mirrored for sell."""
+    e = ema(g.close)
+    if buy:
+        p = g.high - e
+        return p.iloc[-1] > 0 or (p.iloc[-1] > p.iloc[-2] > p.iloc[-3])
+    p = g.low - e
+    return p.iloc[-1] < 0 or (p.iloc[-1] < p.iloc[-2] < p.iloc[-3])
+
+
+def check(side, g, d, m1):
+    """Returns (trigger text, signal time) or None.
+    CRT only counts when an M1 BOS/CHoCH confirms it. CSD works as before."""
+    buy = side == "BUY"
+    if not (trend_ok(g, buy) and dxy_ok(d, buy) and power_ok(g, buy)):
+        return None
+    tags, when = [], g.index[-1]
+    sweep = crt(g, buy)
+    if sweep is not None:
+        b = m1_break(m1, sweep, buy)
+        if b:
+            tags.append(f"CRT + M1 {b[0]}")
+            when = b[1]
+    if csd(g, buy):
+        tags.append("CSD")
+    if not tags:
+        return None
+    return " + ".join(tags), when
 
 
 def levels(side, entry, a):
@@ -158,7 +230,7 @@ def track(trade, g, state):
 
         if sl_hit:  # conservative: SL checked first within a candle
             label = "BE stop (profit locked)" if trade["tp1_hit"] else "STOP LOSS"
-            tg(f"{'🟡' if trade['tp1_hit'] else '🔴'} XAU/USD {trade['side']} - {label} hit at {fmt(trade['sl'])}\nCandle: {when}")
+            tg(f"{'🟡' if trade['tp1_hit'] else '🔴'} XAU/USD {trade['side']} - {label} hit at {fmt(trade['sl'])}. Trade closed.\nCandle: {when}")
             state["open"] = None
             return
         if not trade["tp1_hit"] and reached(trade["tp1"]):
@@ -194,16 +266,19 @@ def main():
         print("Red news window:", title)
         return
 
+    m1 = get_m1()
     for side in ("BUY", "SELL"):
-        if check(side, g, d):
-            key = f"{side}@{g.index[-1]}"
+        res = check(side, g, d, m1)
+        if res:
+            trigger, sig_time = res
+            key = f"{side}@{sig_time}"
             if state["last_signal"] == key:
                 return
-            entry, a = g.close.iloc[-1], atr(g).iloc[-1]
+            entry, a = m1.close.iloc[-1], atr(g).iloc[-1]
             t = levels(side, entry, a)
             t["last_ts"] = str(g.index[-1])
             state["open"], state["last_signal"] = t, key
-            tg(f"{'🟢' if side == 'BUY' else '🔴'} XAU/USD {side} ({INTERVAL})\n"
+            tg(f"{'🟢' if side == 'BUY' else '🔴'} XAU/USD {side} ({INTERVAL}) - {trigger}\n"
                f"Entry: {fmt(entry)}\nSL: {fmt(t['sl'])}\n"
                f"TP1: {fmt(t['tp1'])}\nTP2: {fmt(t['tp2'])}\nTP3: {fmt(t['tp3'])}\n"
                f"After TP1: SL to BE {fmt(t['be'])}\nATR: {fmt(a)}")
