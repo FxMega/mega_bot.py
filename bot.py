@@ -11,7 +11,7 @@ EMA_N, ATR_N = 13, 14
 NEWS_WINDOW = timedelta(minutes=30)       # block signals +/- 30 min around red news
 TP1_X, TP2_X, TP3_X, SL_X, BE_X = 1.8, 2.5, 3.0, 1.2, 1.0
 STATE_FILE = "state.json"
-FRESH_BARS = 20         # M1 break must be within the last N M1 candles (covers delayed runs)
+FRESH_BARS = 20         # M1 shift must be within the last N M1 candles (covers delayed runs)
 
 
 def tg(msg):
@@ -92,8 +92,10 @@ def crt(g, buy):
 
 
 def m1_break(m1, since, buy):
-    """Bullish/bearish BOS or CHoCH on M1 after the M15 sweep candle opened.
-    Returns (label, time of the breaking M1 candle) or None."""
+    """M1 MSS / CHoCH after the M15 sweep candle opened (plain BOS is ignored).
+    Buy: M1 closes above the latest confirmed swing high while M1 was making lower highs.
+    Sell: M1 closes below the latest confirmed swing low while M1 was making higher lows.
+    Returns ("MSS/CHoCH", time of the breaking M1 candle) or None."""
     w = m1[m1.index >= since]
     n = len(w)
     if n < 8:
@@ -107,21 +109,21 @@ def m1_break(m1, since, buy):
         ext = int(hi.argmax())      # the sweep high
     for j in range(max(3, n - FRESH_BARS), n):
         if j <= ext:
-            continue                # break must come after the sweep extreme
+            continue                # shift must come after the sweep extreme
         prior = [i for i in swings if i <= j - 3]   # confirmed swings only
-        if not prior:
-            continue
+        if len(prior) < 2:
+            continue                # need 2 swings to know the prior structure
         k = prior[-1]
         if buy:
             level = hi[k]
             broke = cl[j] > level and cl[j - 1] <= level
-            was_down = len(prior) > 1 and level < hi[prior[-2]]   # lower highs before = CHoCH
+            shift = level < hi[prior[-2]]      # lower highs before = real shift
         else:
             level = lo[k]
             broke = cl[j] < level and cl[j - 1] >= level
-            was_down = len(prior) > 1 and level > lo[prior[-2]]   # higher lows before = CHoCH
-        if broke:
-            return ("CHoCH" if was_down else "BOS"), w.index[j]
+            shift = level > lo[prior[-2]]      # higher lows before = real shift
+        if broke and shift:
+            return "MSS/CHoCH", w.index[j]
     return None
 
 
@@ -188,18 +190,22 @@ def power_ok(g, buy):
 
 def check(side, g, d, m1):
     """Returns (trigger text, signal time) or None.
-    CRT only counts when an M1 BOS/CHoCH confirms it. CSD works as before."""
+    CRT only counts when an M1 MSS/CHoCH confirms it. CSD works as before.
+    Prints a one-line report of every filter so quiet runs can be explained."""
     buy = side == "BUY"
-    if not (trend_ok(g, buy) and dxy_ok(d, buy) and power_ok(g, buy)):
+    t, x, p = trend_ok(g, buy), dxy_ok(d, buy), power_ok(g, buy)
+    sweep = crt(g, buy)
+    b = m1_break(m1, sweep, buy) if sweep is not None else None
+    cs = csd(g, buy)
+    print(f"{side}: gold_trend={t} dxy={x} power={p} | "
+          f"crt_sweep={sweep is not None} m1_mss_choch={bool(b)} csd={cs}")
+    if not (t and x and p):
         return None
     tags, when = [], g.index[-1]
-    sweep = crt(g, buy)
-    if sweep is not None:
-        b = m1_break(m1, sweep, buy)
-        if b:
-            tags.append(f"CRT + M1 {b[0]}")
-            when = b[1]
-    if csd(g, buy):
+    if b:
+        tags.append(f"CRT + M1 {b[0]}")
+        when = b[1]
+    if cs:
         tags.append("CSD")
     if not tags:
         return None
@@ -254,17 +260,21 @@ def main():
         return
     state = load_state()
     g, d = get_gold(), get_dxy()
+    print(f"Run {now:%Y-%m-%d %H:%M} UTC | last M15 candle {g.index[-1]:%H:%M} | "
+          f"gold close {g.close.iloc[-1]:.2f} | DXY close {d.close.iloc[-1]:.3f}")
 
     if state["open"]:
         track(state["open"], g, state)
         save_state(state)
         if state["open"]:
+            print(f"Trade open ({state['open']['side']} from {state['open']['entry']:.2f}), tracking only")
             return  # one trade at a time
 
     news, title = red_news(now)
     if news:
         print("Red news window:", title)
         return
+    print("News: clear")
 
     m1 = get_m1()
     for side in ("BUY", "SELL"):
@@ -273,6 +283,7 @@ def main():
             trigger, sig_time = res
             key = f"{side}@{sig_time}"
             if state["last_signal"] == key:
+                print("Signal already sent for this candle")
                 return
             entry, a = m1.close.iloc[-1], atr(g).iloc[-1]
             t = levels(side, entry, a)
@@ -282,7 +293,10 @@ def main():
                f"Entry: {fmt(entry)}\nSL: {fmt(t['sl'])}\n"
                f"TP1: {fmt(t['tp1'])}\nTP2: {fmt(t['tp2'])}\nTP3: {fmt(t['tp3'])}\n"
                f"After TP1: SL to BE {fmt(t['be'])}\nATR: {fmt(a)}")
+            print(f"SIGNAL SENT: {side} - {trigger}")
             break
+    else:
+        print("No signal this run")
     save_state(state)
 
 
