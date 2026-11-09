@@ -1,6 +1,7 @@
 import os, json, requests
 import pandas as pd
 import yfinance as yf
+from itertools import combinations
 from datetime import datetime, timezone, timedelta
 
 TD_KEY = os.environ["TWELVEDATA_KEY"]
@@ -12,6 +13,20 @@ NEWS_WINDOW = timedelta(minutes=30)       # block signals +/- 30 min around red 
 TP1_X, TP2_X, TP3_X, SL_X, BE_X = 1.8, 2.5, 3.0, 1.2, 1.0
 STATE_FILE = "state.json"
 FRESH_BARS = 20         # M1 shift must be within the last N M1 candles (covers delayed runs)
+
+# --- entry-quality filters ---
+ROOM_BARS = 12          # look back this many M15 candles (12 = 3 hours) for the nearest high/low
+ROOM_ATR = 1.5          # need at least this x ATR of free space before that high (buy) / low (sell)
+MAX_EXT_ATR = 1.5       # skip if entry is more than this x ATR away from the M15 EMA13
+
+# --- chart pattern settings (M15) ---
+PATTERN_BARS = 80       # scan the last 80 M15 candles (20 hours)
+PIVOT_ORDER = 3         # a swing point needs 3 lower/higher candles on each side
+PAT_TOL = 0.5           # double top/bottom: the two extremes must be within this x ATR
+SHOULDER_TOL = 1.0      # head & shoulders: shoulders within this x ATR of each other
+HEAD_DEPTH = 0.5        # head must stick out past the shoulders by at least this x ATR
+MIN_HEIGHT = 1.0        # pattern height (extreme to neckline) must be at least this x ATR
+TRI_TOL = 0.4           # triangle: flat side must be flat within this x ATR
 
 
 def tg(msg):
@@ -146,6 +161,77 @@ def csd(g, buy):
     return last.close > level if buy else last.close < level
 
 
+# ---------- chart patterns ----------
+def pivots(hi, lo):
+    """Indexes of confirmed swing highs / swing lows."""
+    n, o = len(hi), PIVOT_ORDER
+    highs = [i for i in range(o, n - o) if hi[i] == hi[i - o:i + o + 1].max()]
+    lows = [i for i in range(o, n - o) if lo[i] == lo[i - o:i + o + 1].min()]
+    return highs, lows
+
+
+def pattern(g, buy):
+    """Scans M15 for a completed chart pattern whose neckline/resistance was JUST broken.
+    Buy: Inverse Head & Shoulders, Double Bottom, Ascending Triangle (break up).
+    Sell: Head & Shoulders, Double Top, Descending Triangle (break down).
+    Sells are found by flipping the price series upside down and reusing the buy logic.
+    Returns (pattern name, time of the breakout candle) or None."""
+    d = g.tail(PATTERN_BARS)
+    if not buy:
+        d = pd.DataFrame({"open": -d.open, "high": -d.low, "low": -d.high, "close": -d.close}, index=d.index)
+    a = atr(g).iloc[-1]
+    hi, lo, cl = d.high.values, d.low.values, d.close.values
+    n = len(d)
+    highs, lows = pivots(hi, lo)
+    names = {True: ("Double Bottom", "Inverse Head & Shoulders", "Ascending Triangle"),
+             False: ("Double Top", "Head & Shoulders", "Descending Triangle")}[buy]
+
+    def fresh(level, start):
+        """First close above `level` after `start`; it must be one of the last 2 candles
+        and price must still be above the level (so old breakouts don't count)."""
+        for j in range(start + 1, n):
+            if cl[j] > level:
+                return j if (j >= n - 2 and cl[j:].min() > level) else None
+        return None
+
+    # Head & Shoulders (inverse for buys): head clearly lower than two similar shoulders
+    for l, h, r in combinations(lows[-6:], 3):
+        if h - l < 3 or r - h < 3:
+            continue
+        if lo[h] >= min(lo[l], lo[r]) - HEAD_DEPTH * a or abs(lo[l] - lo[r]) > SHOULDER_TOL * a:
+            continue
+        neck = max(hi[l:h + 1].max(), hi[h:r + 1].max())
+        if neck - lo[h] < MIN_HEIGHT * a:
+            continue
+        j = fresh(neck, r)
+        if j is not None:
+            return names[1], d.index[j]
+
+    # Double Bottom / Double Top: two equal extremes, neckline = the peak between them
+    for l1, l2 in combinations(lows[-5:], 2):
+        if l2 - l1 < 5 or abs(lo[l1] - lo[l2]) > PAT_TOL * a:
+            continue
+        neck = hi[l1:l2 + 1].max()
+        if neck - max(lo[l1], lo[l2]) < MIN_HEIGHT * a:
+            continue
+        if lo[l2:].min() < min(lo[l1], lo[l2]) - PAT_TOL * a:
+            continue            # price already broke down through the bottom
+        j = fresh(neck, l2)
+        if j is not None:
+            return names[0], d.index[j]
+
+    # Ascending (Descending) Triangle: flat highs (lows) with rising lows (falling highs)
+    if len(highs) >= 2 and len(lows) >= 2:
+        h1, h2, l1, l2 = highs[-2], highs[-1], lows[-2], lows[-1]
+        flat = h2 - h1 >= 4 and abs(hi[h1] - hi[h2]) <= TRI_TOL * a
+        rising = l2 - l1 >= 4 and lo[l2] - lo[l1] >= 0.3 * a
+        if flat and rising and max(h2, l2) - min(h1, l1) >= 10:
+            j = fresh(max(hi[h1], hi[h2]), max(h2, l2))
+            if j is not None:
+                return names[2], d.index[j]
+    return None
+
+
 def red_news(now):
     """High-impact USD news from the Forex Factory weekly feed. Fails closed."""
     try:
@@ -188,9 +274,38 @@ def power_ok(g, buy):
     return p.iloc[-1] < 0 or (p.iloc[-1] < p.iloc[-2] < p.iloc[-3])
 
 
+def quality_ok(g, m1, buy):
+    """Entry-quality filters, judged at the actual entry price (latest M1 close):
+    1. Room: enough free space before the recent high (buy) / low (sell).
+       If price is already beyond that level it is a breakout, so there is no wall ahead.
+    2. Extension: entry not too far from the M15 EMA13 (don't chase)."""
+    a = atr(g).iloc[-1]
+    px = m1.close.iloc[-1]
+    e = ema(g.close).iloc[-1]
+    recent = g.tail(ROOM_BARS)
+    if buy:
+        wall = recent.high.max()
+        room = wall - px
+    else:
+        wall = recent.low.min()
+        room = px - wall
+    breakout = room <= 0
+    room_ok = breakout or room >= ROOM_ATR * a
+    ext = abs(px - e)
+    ext_ok = ext <= MAX_EXT_ATR * a
+    info = (f"room={'breakout' if breakout else f'{room:.2f}'} (need {ROOM_ATR * a:.2f}) "
+            f"ext={ext:.2f} (max {MAX_EXT_ATR * a:.2f})")
+    return room_ok, ext_ok, info
+
+
 def check(side, g, d, m1):
     """Returns (trigger text, signal time) or None.
-    Every signal (CRT or CSD) needs an M1 MSS/CHoCH confirmation.
+    The gold EMA13 / DXY EMA13 / Bulls-Bears Power filters must pass first.
+    Then ANY of these triggers can fire:
+      - CRT + M1 MSS/CHoCH
+      - CSD + M1 MSS/CHoCH
+      - a chart pattern breakout on M15 (the neckline break is its own confirmation)
+    Finally the room and extension filters are applied at the entry price.
     Prints a one-line report of every filter so quiet runs can be explained."""
     buy = side == "BUY"
     t, x, p = trend_ok(g, buy), dxy_ok(d, buy), power_ok(g, buy)
@@ -198,20 +313,30 @@ def check(side, g, d, m1):
     cs = csd(g, buy)
     b_crt = m1_break(m1, sweep, buy) if sweep is not None else None
     b_csd = m1_break(m1, g.index[-1], buy) if cs else None
+    pat = pattern(g, buy)
     print(f"{side}: gold_trend={t} dxy={x} power={p} | "
-          f"crt_sweep={sweep is not None} crt_mss={bool(b_crt)} csd={cs} csd_mss={bool(b_csd)}")
+          f"crt_sweep={sweep is not None} crt_mss={bool(b_crt)} csd={cs} csd_mss={bool(b_csd)} | "
+          f"pattern={pat[0] if pat else False}")
     if not (t and x and p):
         return None
     tags, times = [], []
     if b_crt:
-        tags.append("CRT")
+        tags.append("CRT (M1 MSS/CHoCH)")
         times.append(b_crt[1])
     if b_csd:
-        tags.append("CSD")
+        tags.append("CSD (M1 MSS/CHoCH)")
         times.append(b_csd[1])
+    if pat:
+        tags.append(f"Pattern: {pat[0]}")
+        times.append(pat[1])
     if not tags:
         return None
-    return " + ".join(tags) + " + M1 MSS/CHoCH", max(times)
+    room_ok, ext_ok, info = quality_ok(g, m1, buy)
+    print(f"{side}: trigger found | room_ok={room_ok} ext_ok={ext_ok} | {info}")
+    if not (room_ok and ext_ok):
+        print(f"{side}: skipped by entry-quality filter")
+        return None
+    return " + ".join(tags), max(times)
 
 
 def levels(side, entry, a):
