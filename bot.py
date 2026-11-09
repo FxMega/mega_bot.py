@@ -56,7 +56,7 @@ def get_gold():
 
 
 def get_m1():
-    return td_candles("1min", 150)
+    return td_candles("1min", 300)   # ~5 hours of M1, enough to catch up after delays
 
 
 def get_dxy():
@@ -92,7 +92,7 @@ def crt(g, buy):
 
 
 def m1_break(m1, since, buy):
-    """M1 MSS / CHoCH after the M15 sweep candle opened (plain BOS is ignored).
+    """M1 MSS / CHoCH after `since` (plain BOS is ignored).
     Buy: M1 closes above the latest confirmed swing high while M1 was making lower highs.
     Sell: M1 closes below the latest confirmed swing low while M1 was making higher lows.
     Returns ("MSS/CHoCH", time of the breaking M1 candle) or None."""
@@ -109,7 +109,7 @@ def m1_break(m1, since, buy):
         ext = int(hi.argmax())      # the sweep high
     for j in range(max(3, n - FRESH_BARS), n):
         if j <= ext:
-            continue                # shift must come after the sweep extreme
+            continue                # shift must come after the extreme
         prior = [i for i in swings if i <= j - 3]   # confirmed swings only
         if len(prior) < 2:
             continue                # need 2 swings to know the prior structure
@@ -190,26 +190,28 @@ def power_ok(g, buy):
 
 def check(side, g, d, m1):
     """Returns (trigger text, signal time) or None.
-    CRT only counts when an M1 MSS/CHoCH confirms it. CSD works as before.
+    Every signal (CRT or CSD) needs an M1 MSS/CHoCH confirmation.
     Prints a one-line report of every filter so quiet runs can be explained."""
     buy = side == "BUY"
     t, x, p = trend_ok(g, buy), dxy_ok(d, buy), power_ok(g, buy)
     sweep = crt(g, buy)
-    b = m1_break(m1, sweep, buy) if sweep is not None else None
     cs = csd(g, buy)
+    b_crt = m1_break(m1, sweep, buy) if sweep is not None else None
+    b_csd = m1_break(m1, g.index[-1], buy) if cs else None
     print(f"{side}: gold_trend={t} dxy={x} power={p} | "
-          f"crt_sweep={sweep is not None} m1_mss_choch={bool(b)} csd={cs}")
+          f"crt_sweep={sweep is not None} crt_mss={bool(b_crt)} csd={cs} csd_mss={bool(b_csd)}")
     if not (t and x and p):
         return None
-    tags, when = [], g.index[-1]
-    if b:
-        tags.append(f"CRT + M1 {b[0]}")
-        when = b[1]
-    if cs:
+    tags, times = [], []
+    if b_crt:
+        tags.append("CRT")
+        times.append(b_crt[1])
+    if b_csd:
         tags.append("CSD")
+        times.append(b_csd[1])
     if not tags:
         return None
-    return " + ".join(tags), when
+    return " + ".join(tags) + " + M1 MSS/CHoCH", max(times)
 
 
 def levels(side, entry, a):
@@ -224,10 +226,13 @@ def fmt(x):
     return f"{x:.2f}"
 
 
-def track(trade, g, state):
-    """Walk candles since last check; send TP/SL/BE alerts."""
+def track(trade, m1, state):
+    """Walk M1 candles that opened AFTER the entry candle; send TP/SL/BE alerts.
+    Nothing from before the entry can count, and hits are timed to the minute."""
     buy = trade["side"] == "BUY"
-    for ts, c in g[g.index > pd.Timestamp(trade["last_ts"])].iterrows():
+    new = m1[m1.index > pd.Timestamp(trade["last_ts"])]
+    print(f"Tracking {trade['side']} from {trade['entry']:.2f}: {len(new)} new M1 candle(s)")
+    for ts, c in new.iterrows():
         when = f"{ts:%b %d %H:%M} UTC"
         sl_hit = c.low <= trade["sl"] if buy else c.high >= trade["sl"]
 
@@ -259,12 +264,12 @@ def main():
         print("Market closed")
         return
     state = load_state()
-    g, d = get_gold(), get_dxy()
+    g, d, m1 = get_gold(), get_dxy(), get_m1()
     print(f"Run {now:%Y-%m-%d %H:%M} UTC | last M15 candle {g.index[-1]:%H:%M} | "
           f"gold close {g.close.iloc[-1]:.2f} | DXY close {d.close.iloc[-1]:.3f}")
 
     if state["open"]:
-        track(state["open"], g, state)
+        track(state["open"], m1, state)
         save_state(state)
         if state["open"]:
             print(f"Trade open ({state['open']['side']} from {state['open']['entry']:.2f}), tracking only")
@@ -276,7 +281,6 @@ def main():
         return
     print("News: clear")
 
-    m1 = get_m1()
     for side in ("BUY", "SELL"):
         res = check(side, g, d, m1)
         if res:
@@ -287,7 +291,7 @@ def main():
                 return
             entry, a = m1.close.iloc[-1], atr(g).iloc[-1]
             t = levels(side, entry, a)
-            t["last_ts"] = str(g.index[-1])
+            t["last_ts"] = str(m1.index[-1])   # track only M1 candles after this one
             state["open"], state["last_signal"] = t, key
             tg(f"{'🟢' if side == 'BUY' else '🔴'} XAU/USD {side} ({INTERVAL}) - {trigger}\n"
                f"Entry: {fmt(entry)}\nSL: {fmt(t['sl'])}\n"
