@@ -1,7 +1,28 @@
 {
-  "open": null,
+  "open": {
+    "side": "BUY",
+    "entry": 4039.37608,
+    "atr": 4.911738988308217,
+    "tp1": 4048.2172101789547,
+    "tp2": 4051.6554274707705,
+    "tp3": 4054.111296964925,
+    "sl": 4033.4819932140304,
+    "be": 4044.287818988308,
+    "tp1_hit": false,
+    "tp2_hit": false,
+    "last_ts": "2026-11-11 00:07:00+00:00",
+    "time": "2026-11-11 00:09:38.161937+00:00",
+    "kinds": [
+      "Pattern: Double Bottom (M5)",
+      "Pattern: Ascending Triangle (M1)"
+    ],
+    "session": "Asia"
+  },
   "last_signal": "BUY@2026-11-10 01:27:00+00:00",
-  "seen": [],
+  "seen": [
+    "BUY|Pattern: Double Bottom (M5)|2026-11-10 23:50:00+00:00",
+    "BUY|Pattern: Ascending Triangle (M1)|2026-11-11 00:00:00+00:00"
+  ],
   "journal": [],
   "shadow": []
 }
