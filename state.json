@@ -1,22 +1,5 @@
 {
-  "open": {
-    "side": "SELL",
-    "entry": 4050.46345,
-    "atr": 5.357180525467921,
-    "tp1": 4040.8205250541578,
-    "tp2": 4037.07049868633,
-    "tp3": 4034.3919084235963,
-    "sl": 4056.8920666305617,
-    "be": 4045.1062694745324,
-    "tp1_hit": false,
-    "tp2_hit": false,
-    "last_ts": "2026-11-11 12:09:00+00:00",
-    "time": "2026-11-11 09:29:20.944912+00:00",
-    "kinds": [
-      "Pattern: Descending Triangle (M5)"
-    ],
-    "session": "London"
-  },
+  "open": null,
   "last_signal": "BUY@2026-11-10 01:27:00+00:00",
   "seen": [
     "BUY|Pattern: Double Bottom (M5)|2026-11-10 23:50:00+00:00",
@@ -34,6 +17,17 @@
       "session": "Asia",
       "win": false,
       "stage": "SL",
+      "shadow": false
+    },
+    {
+      "time": "2026-11-11 09:29:20.944912+00:00",
+      "side": "SELL",
+      "kinds": [
+        "Pattern: Descending Triangle (M5)"
+      ],
+      "session": "London",
+      "win": true,
+      "stage": "BE",
       "shadow": false
     }
   ],
