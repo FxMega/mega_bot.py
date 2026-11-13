@@ -1,10 +1,28 @@
 {
-  "open": null,
+  "open": {
+    "side": "SELL",
+    "entry": 3880.92532,
+    "atr": 7.767318076504033,
+    "tp1": 3866.9441474622927,
+    "tp2": 3861.50702480874,
+    "tp3": 3857.623365770488,
+    "sl": 3890.2461016918046,
+    "be": 3873.1580019234957,
+    "tp1_hit": false,
+    "tp2_hit": false,
+    "last_ts": "2026-11-13 18:56:00+00:00",
+    "time": "2026-11-13 18:58:45.661849+00:00",
+    "kinds": [
+      "Pattern: Head & Shoulders (M5)"
+    ],
+    "session": "LateNY"
+  },
   "last_signal": "BUY@2026-11-10 01:27:00+00:00",
   "seen": [
     "BUY|Pattern: Double Bottom (M5)|2026-11-10 23:50:00+00:00",
     "BUY|Pattern: Ascending Triangle (M1)|2026-11-11 00:00:00+00:00",
-    "SELL|Pattern: Descending Triangle (M5)|2026-11-11 09:15:00+00:00"
+    "SELL|Pattern: Descending Triangle (M5)|2026-11-11 09:15:00+00:00",
+    "SELL|Pattern: Head & Shoulders (M5)|2026-11-13 18:45:00+00:00"
   ],
   "journal": [
     {
