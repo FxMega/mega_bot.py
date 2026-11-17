@@ -1,22 +1,5 @@
 {
-  "open": {
-    "side": "BUY",
-    "entry": 3867.5471,
-    "atr": 7.7413864496056926,
-    "tp1": 3881.48159560929,
-    "tp2": 3886.900566124014,
-    "tp3": 3890.771259348817,
-    "sl": 3858.257436260473,
-    "be": 3875.2884864496054,
-    "tp1_hit": false,
-    "tp2_hit": false,
-    "last_ts": "2026-11-16 17:28:00+00:00",
-    "time": "2026-11-16 17:31:19.605119+00:00",
-    "kinds": [
-      "CSD (M1 MSS/CHoCH)"
-    ],
-    "session": "LateNY"
-  },
+  "open": null,
   "last_signal": "BUY@2026-11-10 01:27:00+00:00",
   "seen": [
     "BUY|Pattern: Double Bottom (M5)|2026-11-10 23:50:00+00:00",
@@ -54,6 +37,17 @@
       "side": "SELL",
       "kinds": [
         "Pattern: Head & Shoulders (M5)"
+      ],
+      "session": "LateNY",
+      "win": false,
+      "stage": "SL",
+      "shadow": false
+    },
+    {
+      "time": "2026-11-16 17:31:19.605119+00:00",
+      "side": "BUY",
+      "kinds": [
+        "CSD (M1 MSS/CHoCH)"
       ],
       "session": "LateNY",
       "win": false,
