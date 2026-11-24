@@ -1,22 +1,5 @@
 {
-  "open": {
-    "side": "BUY",
-    "entry": 3623.366,
-    "atr": 9.897898337504087,
-    "tp1": 3641.1822170075075,
-    "tp2": 3648.11074584376,
-    "tp3": 3653.0596950125123,
-    "sl": 3611.488521994995,
-    "be": 3633.263898337504,
-    "tp1_hit": false,
-    "tp2_hit": false,
-    "last_ts": "2026-11-24 14:58:00+00:00",
-    "time": "2026-11-24 15:00:48.005413+00:00",
-    "kinds": [
-      "CRT (M1 MSS/CHoCH)"
-    ],
-    "session": "NewYork"
-  },
+  "open": null,
   "last_signal": "BUY@2026-11-10 01:27:00+00:00",
   "seen": [
     "BUY|Pattern: Double Bottom (M5)|2026-11-10 23:50:00+00:00",
@@ -68,6 +51,17 @@
         "CSD (M1 MSS/CHoCH)"
       ],
       "session": "LateNY",
+      "win": false,
+      "stage": "SL",
+      "shadow": false
+    },
+    {
+      "time": "2026-11-24 15:00:48.005413+00:00",
+      "side": "BUY",
+      "kinds": [
+        "CRT (M1 MSS/CHoCH)"
+      ],
+      "session": "NewYork",
       "win": false,
       "stage": "SL",
       "shadow": false
